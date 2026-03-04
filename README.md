@@ -40,6 +40,18 @@ Creator/
 └── package.json     # Root scripts
 ```
 
+## Social Generator: Video Extraction
+
+Uses a **self-hosted Puppeteer headless browser** (with stealth plugin) to render Instagram, TikTok, and Facebook pages, then extract `og:video` or video element sources.
+
+**Apify fallback (optional):** For reliable Instagram Reel video extraction when headless returns thumbnails, add `APIFY_TOKEN` to `server/.env`. Uses [igview-owner/instagram-video-downloader](https://apify.com/igview-owner/instagram-video-downloader) (~$5/1000 results). Get your token at [console.apify.com/account#/integrations](https://console.apify.com/account#/integrations).
+
+- **First run** downloads Chromium (~300MB) if not cached
+- Set `USE_HEADLESS=false` in `server/.env` to disable and fall back to simple HTTP scrape only
+- On minimal Linux (Docker, etc.), you may need: `apt install -y chromium` and `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`
+
+See [docs/SOCIAL_VIDEO_RESEARCH.md](docs/SOCIAL_VIDEO_RESEARCH.md) for research on how Nova, Spaceback, etc. handle this.
+
 ## CM360 Export Requirements
 
 - Max 100 files per ZIP

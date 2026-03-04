@@ -1,15 +1,19 @@
 import { Router } from 'express'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
+import { headlessFetch } from '../lib/headlessFetch.js'
+import { apifyFetchInstagram } from '../lib/apifyFetch.js'
 
 export const socialRouter = Router()
+
+const USE_HEADLESS = process.env.USE_HEADLESS !== 'false'
+const APIFY_TOKEN = process.env.APIFY_TOKEN?.trim() || ''
 
 function extractMediaFromHtml(html, pageUrl) {
   const $ = cheerio.load(html)
   let mediaUrl = null
   let mediaType = 'image'
 
-  // Prefer VIDEO first (og:video) so we get actual video for Reels/TikTok etc.
   const ogVideo = $('meta[property="og:video"]').attr('content')
   const ogVideoUrl = $('meta[property="og:video:url"]').attr('content')
   const ogVideoSecure = $('meta[property="og:video:secure_url"]').attr('content')
@@ -20,7 +24,6 @@ function extractMediaFromHtml(html, pageUrl) {
     return { mediaUrl, mediaType }
   }
 
-  // Fall back to image
   const ogImage = $('meta[property="og:image"]').attr('content')
   if (ogImage) {
     mediaUrl = ogImage
@@ -38,10 +41,8 @@ function extractMediaFromHtml(html, pageUrl) {
   return { mediaUrl: null, mediaType: 'image' }
 }
 
+
 async function tryOEmbed(url) {
-  // oEmbed typically returns thumbnails only. For video posts, scraping the page
-  // (og:video) gives the actual video. We try oEmbed first for speed, but prefer
-  // page scrape when it yields video. Caller will use fetchPageMeta as fallback.
   const oembedEndpoints = [
     {
       url: 'https://www.tiktok.com/oembed',
@@ -135,18 +136,58 @@ socialRouter.post('/fetch', async (req, res) => {
       return res.status(400).json({ error: 'URL must start with http' })
     }
 
-    // Always scrape page first for video posts - og:video gives actual video URL.
-    // oEmbed only returns thumbnails. Scraping yields video when available.
-    const pageResult = await fetchPageMeta(trimmed)
-    let mediaUrl = pageResult.mediaUrl
-    let mediaType = pageResult.mediaType
+    let mediaUrl = null
+    let mediaType = 'image'
+    let source = 'none'
 
-    // Fallback to oEmbed only if page scrape failed (e.g. JS-heavy page)
+    // 1. Headless browser (Instagram, TikTok, Facebook) - renders JS, extracts og:video / video src
+    if (USE_HEADLESS && /instagram\.com|tiktok\.com|facebook\.com|fb\.com|fb\.watch/.test(trimmed)) {
+      try {
+        const headlessResult = await headlessFetch(trimmed)
+        if (headlessResult?.mediaUrl) {
+          mediaUrl = headlessResult.mediaUrl
+          mediaType = headlessResult.mediaType
+          source = 'headless'
+        }
+      } catch (err) {
+        console.warn('Headless fetch error:', err.message, err.stack)
+      }
+    }
+
+    // 1b. Apify fallback for Instagram (when headless fails or returns thumbnail instead of video for Reels)
+    const isInstagram = /instagram\.com/.test(trimmed)
+    const isReel = trimmed.includes('/reel/')
+    const gotThumbnailForReel = isReel && mediaType === 'image'
+    if (APIFY_TOKEN && isInstagram && (!mediaUrl || gotThumbnailForReel)) {
+      try {
+        const apifyResult = await apifyFetchInstagram(trimmed)
+        if (apifyResult?.mediaUrl) {
+          mediaUrl = apifyResult.mediaUrl
+          mediaType = apifyResult.mediaType
+          source = 'apify'
+        }
+      } catch (err) {
+        console.warn('Apify fetch error:', err.message)
+      }
+    }
+
+    // 2. Simple HTTP scrape (og:video, og:image) - works for TikTok, some others
+    if (!mediaUrl) {
+      const pageResult = await fetchPageMeta(trimmed)
+      if (pageResult.mediaUrl) {
+        mediaUrl = pageResult.mediaUrl
+        mediaType = pageResult.mediaType
+        source = 'scrape'
+      }
+    }
+
+    // 3. oEmbed fallback (thumbnails only)
     if (!mediaUrl) {
       const oembedResult = await tryOEmbed(trimmed)
       if (oembedResult?.url) {
         mediaUrl = oembedResult.url
         mediaType = oembedResult.type || 'image'
+        source = 'oembed'
       }
     }
 
@@ -154,9 +195,16 @@ socialRouter.post('/fetch', async (req, res) => {
       ok: true,
       mediaUrl: mediaUrl || null,
       mediaType: mediaType || 'image',
-      source: mediaUrl ? 'fetched' : 'none',
+      source,
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
+})
+
+socialRouter.get('/config', (req, res) => {
+  res.json({
+    headlessEnabled: USE_HEADLESS,
+    apifyEnabled: !!APIFY_TOKEN,
+  })
 })
