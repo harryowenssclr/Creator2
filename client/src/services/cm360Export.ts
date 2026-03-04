@@ -15,7 +15,8 @@ function sanitizeFilename(name: string): string {
   return name.replace(/%/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
-export async function exportToCM360(config: CM360ExportConfig): Promise<void> {
+/** Creates a CM360 creative zip blob (for single download or bulk bundling). */
+export async function createCM360ZipBlob(config: CM360ExportConfig): Promise<Blob> {
   const zip = new JSZip()
 
   zip.file('index.html', config.html, { binary: false })
@@ -40,6 +41,11 @@ export async function exportToCM360(config: CM360ExportConfig): Promise<void> {
     )
   }
 
+  return blob
+}
+
+export async function exportToCM360(config: CM360ExportConfig): Promise<void> {
+  const blob = await createCM360ZipBlob(config)
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = `banner-${config.width}x${config.height}.zip`
@@ -53,14 +59,65 @@ export function buildCM360Html(config: {
   clickUrl?: string
   bodyContent: string
   extraStyles?: string
+  /** When set, video src is loaded via Enabler.getUrl (required for CM360 video creatives) */
+  videoAssetName?: string
 }): string {
   const clickUrl = config.clickUrl || 'https://www.example.com'
+  const exitName = 'Background Exit'
+  const hasVideo = !!config.videoAssetName
+
+  // CM360 requires: Enabler script, exit events (no click tags), Enabler.getUrl for video
+  const initScript = hasVideo
+    ? `
+  (function() {
+    function getVideoUrl(filename) {
+      if (Enabler.isServingInLiveEnvironment()) {
+        return Enabler.getUrl(filename);
+      }
+      return filename;
+    }
+    function initAd() {
+      var video = document.getElementById('video1');
+      if (video) {
+        var source = document.createElement('source');
+        source.setAttribute('src', getVideoUrl("${config.videoAssetName!.replace(/"/g, '\\"')}"));
+        source.setAttribute('type', 'video/mp4');
+        video.appendChild(source);
+        video.play();
+      }
+      document.addEventListener('click', function() {
+        Enabler.exitOverride("${exitName.replace(/"/g, '\\"')}", "${clickUrl.replace(/"/g, '\\"')}");
+      });
+    }
+    if (Enabler.isInitialized()) {
+      initAd();
+    } else {
+      Enabler.addEventListener(studio.events.StudioEvent.INIT, initAd);
+    }
+  })();
+`
+    : `
+  (function() {
+    function initAd() {
+      document.addEventListener('click', function() {
+        Enabler.exitOverride("${exitName.replace(/"/g, '\\"')}", "${clickUrl.replace(/"/g, '\\"')}");
+      });
+    }
+    if (Enabler.isInitialized()) {
+      initAd();
+    } else {
+      Enabler.addEventListener(studio.events.StudioEvent.INIT, initAd);
+    }
+  })();
+`
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="ad.size" content="width=${config.width},height=${config.height}">
   <title>Banner Ad</title>
+  <script src="https://s0.2mdn.net/ads/studio/Enabler.js" type="text/javascript"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
@@ -69,11 +126,9 @@ export function buildCM360Html(config: {
 </head>
 <body>
   ${config.bodyContent}
-  <script>
-    var clickTag = "${clickUrl.replace(/"/g, '\\"')}";
-    document.addEventListener('click', function() {
-      window.open(clickTag, '_blank');
-    });
+  <script type="text/javascript">
+    window.onload = function() {${initScript}
+    };
   </script>
 </body>
 </html>`

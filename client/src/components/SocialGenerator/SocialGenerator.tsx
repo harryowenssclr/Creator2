@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import axios from 'axios'
 import JSZip from 'jszip'
 import { buildCM360Html } from '../../services/cm360Export'
@@ -14,11 +14,20 @@ export default function SocialGenerator() {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image')
   const [loading, setLoading] = useState(false)
+  const [headlessEnabled, setHeadlessEnabled] = useState<boolean | null>(null)
+  const [apifyEnabled, setApifyEnabled] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [exporting, setExporting] = useState(false)
 
   const effectiveMediaUrl = mediaUrl || (manualMediaUrl.trim() || null)
+
+  useEffect(() => {
+    axios.get('/api/social/config').then(({ data }) => {
+      setHeadlessEnabled(data.headlessEnabled)
+      setApifyEnabled(data.apifyEnabled ?? false)
+    }).catch(() => setHeadlessEnabled(false))
+  }, [])
 
   const handleFetch = useCallback(async () => {
     if (!postUrl.trim()) {
@@ -32,7 +41,7 @@ export default function SocialGenerator() {
     try {
       const { data } = await axios.post('/api/social/fetch', {
         url: postUrl.trim(),
-      })
+      }, { timeout: 90000 })
       if (data.ok && data.mediaUrl) {
         setMediaUrl(data.mediaUrl)
         setMediaType(data.mediaType === 'video' ? 'video' : 'image')
@@ -87,7 +96,7 @@ export default function SocialGenerator() {
 
       for (const size of BANNER_SIZES) {
         const bodyContent = treatAsVideo
-          ? `<div style="position:relative;width:100%;height:100%;cursor:pointer;"><video src="${assetName}" autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover;"></video></div>`
+          ? `<div style="position:relative;width:100%;height:100%;cursor:pointer;"><video id="video1" autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover;"></video></div>`
           : `<div style="position:relative;width:100%;height:100%;cursor:pointer;"><img src="${assetName}" alt="" style="width:100%;height:100%;object-fit:cover;"></div>`
         const html = buildCM360Html({
           width: size.w,
@@ -95,6 +104,7 @@ export default function SocialGenerator() {
           clickUrl,
           bodyContent,
           extraStyles: 'cursor:pointer;',
+          ...(treatAsVideo && { videoAssetName: assetName }),
         })
         zip.file(`banner-${size.w}x${size.h}.html`, html)
       }
@@ -104,9 +114,10 @@ export default function SocialGenerator() {
         height: 600,
         clickUrl,
         bodyContent: treatAsVideo
-          ? `<div style="position:relative;width:100%;height:100%;cursor:pointer;"><video src="${assetName}" autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover;"></video></div>`
+          ? `<div style="position:relative;width:100%;height:100%;cursor:pointer;"><video id="video1" autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover;"></video></div>`
           : `<div style="position:relative;width:100%;height:100%;cursor:pointer;"><img src="${assetName}" alt="" style="width:100%;height:100%;object-fit:cover;"></div>`,
         extraStyles: 'cursor:pointer;',
+        ...(treatAsVideo && { videoAssetName: assetName }),
       })
       zip.file('index.html', indexHtml)
 
@@ -138,7 +149,9 @@ export default function SocialGenerator() {
     effectiveMediaUrl &&
     (mediaType === 'video' ||
       /\.(mp4|webm|mov)(\?|$)/i.test(effectiveMediaUrl) ||
-      effectiveMediaUrl.includes('/video/'))
+      effectiveMediaUrl.includes('/video/') ||
+      /cdninstagram\.com.*mp4|tiktokcdn.*video|fbcdn\.net.*mp4/i.test(effectiveMediaUrl))
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -149,6 +162,12 @@ export default function SocialGenerator() {
         banners (like Nova/Spaceback). If extraction fails, paste the image or
         video URL manually.
       </p>
+      {(headlessEnabled || apifyEnabled) && (
+        <p className="rounded bg-emerald-900/30 px-3 py-1.5 text-sm text-emerald-300">
+          {headlessEnabled && 'Headless browser enabled. '}
+          {apifyEnabled && 'Apify fallback for Instagram (reliable video when headless fails).'}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex-1 min-w-[200px]">
@@ -221,38 +240,41 @@ export default function SocialGenerator() {
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
             <p className="mb-3 text-sm text-slate-400">Preview</p>
             <div className="flex flex-wrap gap-4">
-              {BANNER_SIZES.map(({ w, h }) => (
-                <div
-                  key={`${w}x${h}`}
-                  className="overflow-hidden rounded border border-slate-600"
-                  style={{ width: w, height: h }}
-                >
-                  {isVideo ? (
-                    <video
-                      src={
-                        effectiveMediaUrl.startsWith('http')
-                          ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}&type=video`
-                          : effectiveMediaUrl
-                      }
-                      muted
-                      loop
-                      playsInline
-                      autoPlay
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <img
-                      src={
-                        effectiveMediaUrl.startsWith('http')
-                          ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}`
-                          : effectiveMediaUrl
-                      }
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                </div>
-              ))}
+                {BANNER_SIZES.map(({ w, h }) => (
+                  <div
+                    key={`${w}x${h}`}
+                    className="overflow-hidden rounded border border-slate-600"
+                    style={{ width: w, height: h }}
+                  >
+                    {isVideo ? (
+                      <video
+                        key={effectiveMediaUrl}
+                        src={
+                          effectiveMediaUrl.startsWith('http')
+                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}&type=video`
+                            : effectiveMediaUrl
+                        }
+                        muted
+                        loop
+                        playsInline
+                        autoPlay
+                        controls
+                        preload="auto"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <img
+                        src={
+                          effectiveMediaUrl.startsWith('http')
+                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}`
+                            : effectiveMediaUrl
+                        }
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    )}
+                  </div>
+                ))}
             </div>
           </div>
         </>
