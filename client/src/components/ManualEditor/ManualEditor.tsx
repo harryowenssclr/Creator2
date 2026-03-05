@@ -17,6 +17,14 @@ const DIMENSION_PRESETS = [
   { w: 320, h: 50, label: '320×50' },
 ]
 
+export type Asset = {
+  id: string
+  src: string
+  name: string
+  width: number
+  height: number
+}
+
 export type CanvasElement =
   | {
       id: string
@@ -42,9 +50,13 @@ export type CanvasElement =
       draggable: boolean
     }
 
+const ASSET_PREVIEW_SIZE = 64
+const ASSET_CANVAS_MAX = 150
+
 export default function ManualEditor() {
   const [width, setWidth] = useState(300)
   const [height, setHeight] = useState(250)
+  const [assets, setAssets] = useState<Asset[]>([])
   const [elements, setElements] = useState<CanvasElement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
@@ -66,26 +78,17 @@ export default function ManualEditor() {
       const url = URL.createObjectURL(file)
       const img = new window.Image()
       img.onload = () => {
-        const maxDim = 150
         let w = img.naturalWidth
         let h = img.naturalHeight
-        if (w > maxDim || h > maxDim) {
-          const r = Math.min(maxDim / w, maxDim / h)
-          w *= r
-          h *= r
-        }
-        setElements((prev) => [
+        setAssets((prev) => [
           ...prev,
           {
-            id: `img-${Date.now()}-${i}`,
-            type: 'image',
-            x: 20,
-            y: 20 + prev.length * 30,
+            id: `asset-${Date.now()}-${i}`,
+            src: url,
+            name: file.name,
             width: w,
             height: h,
-            src: url,
-            draggable: true,
-          } as CanvasElement,
+          },
         ])
       }
       if (type.startsWith('image/')) {
@@ -106,17 +109,16 @@ export default function ManualEditor() {
             video.onseeked = () => {
               ctx.drawImage(video, 0, 0, w, h)
               const thumbUrl = canvas.toDataURL('image/png')
-              const newEl: CanvasElement = {
-                id: `img-${Date.now()}-${i}`,
-                type: 'image',
-                x: 20,
-                y: 20,
-                width: w,
-                height: h,
-                src: thumbUrl,
-                draggable: true,
-              }
-              setElements((prev) => [...prev, newEl])
+              setAssets((prev) => [
+                ...prev,
+                {
+                  id: `asset-${Date.now()}-${i}`,
+                  src: thumbUrl,
+                  name: file.name,
+                  width: w,
+                  height: h,
+                },
+              ])
             }
           }
         }
@@ -125,6 +127,55 @@ export default function ManualEditor() {
     }
     e.target.value = ''
   }, [])
+
+  const addAssetToCanvas = useCallback((asset: Asset, canvasX: number, canvasY: number) => {
+    const maxDim = ASSET_CANVAS_MAX
+    let w = asset.width
+    let h = asset.height
+    if (w > maxDim || h > maxDim) {
+      const r = Math.min(maxDim / w, maxDim / h)
+      w *= r
+      h *= r
+    }
+    setElements((prev) => [
+      ...prev,
+      {
+        id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        type: 'image',
+        x: Math.max(0, Math.min(canvasX - w / 2, width - w)),
+        y: Math.max(0, Math.min(canvasY - h / 2, height - h)),
+        width: w,
+        height: h,
+        src: asset.src,
+        draggable: true,
+      } as CanvasElement,
+    ])
+  }, [width, height])
+
+  const stageContainerRef = useRef<HTMLDivElement>(null)
+
+  const handleStageDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const STAGE_PADDING = 24
+  const STAGE_INNER_OFFSET = 24
+
+  const handleStageDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      const assetId = e.dataTransfer.getData('application/x-asset-id')
+      if (!assetId || !stageContainerRef.current) return
+      const asset = assets.find((a) => a.id === assetId)
+      if (!asset) return
+      const rect = stageContainerRef.current.getBoundingClientRect()
+      const canvasX = e.clientX - rect.left - STAGE_PADDING - STAGE_INNER_OFFSET
+      const canvasY = e.clientY - rect.top - STAGE_PADDING - STAGE_INNER_OFFSET
+      addAssetToCanvas(asset, canvasX, canvasY)
+    },
+    [assets, addAssetToCanvas],
+  )
 
   const addText = useCallback(() => {
     if (!newText.trim()) return
@@ -171,6 +222,22 @@ export default function ManualEditor() {
       ;[arr[idx], arr[swap]] = [arr[swap], arr[idx]]
       return arr
     })
+  }, [])
+
+  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null)
+
+  const reorderLayer = useCallback((draggedId: string, targetId: string) => {
+    setElements((prev) => {
+      const fromIdx = prev.findIndex((el) => el.id === draggedId)
+      const toIdx = prev.findIndex((el) => el.id === targetId)
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev
+      const arr = [...prev]
+      const [item] = arr.splice(fromIdx, 1)
+      const insertIdx = fromIdx < toIdx ? toIdx - 1 : toIdx
+      arr.splice(insertIdx, 0, item)
+      return arr
+    })
+    setDraggedLayerId(null)
   }, [])
 
   const handleExport = useCallback(async () => {
@@ -249,17 +316,17 @@ export default function ManualEditor() {
   }, [elements, width, height, clickUrl])
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-8">
+      <div className="flex flex-wrap items-center justify-between gap-6">
         <h1 className="text-2xl font-bold text-white">Manual Editor</h1>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <label className="text-sm text-slate-400">Click URL:</label>
             <input
               type="url"
               value={clickUrl}
               onChange={(e) => setClickUrl(e.target.value)}
-              className="w-48 rounded border border-slate-600 bg-slate-800 px-2 py-1 text-sm text-white"
+              className="w-64 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
               placeholder="https://..."
             />
           </div>
@@ -276,10 +343,10 @@ export default function ManualEditor() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-6">
+      <div className="flex flex-wrap items-end gap-8">
         <div className="flex flex-col gap-2">
           <span className="text-sm text-slate-400">Dimensions</span>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-3">
             {DIMENSION_PRESETS.map(({ w, h, label }) => (
               <button
                 key={label}
@@ -287,7 +354,7 @@ export default function ManualEditor() {
                   setWidth(w)
                   setHeight(h)
                 }}
-                className={`rounded px-3 py-1.5 text-sm ${
+                className={`rounded px-4 py-2 text-sm ${
                   width === w && height === h
                     ? 'bg-sky-600 text-white'
                     : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
@@ -298,9 +365,12 @@ export default function ManualEditor() {
             ))}
           </div>
         </div>
-        <div className="flex gap-2">
-          <label className="flex cursor-pointer items-center gap-2 rounded bg-slate-700 px-4 py-2 text-sm text-white hover:bg-slate-600">
-            Upload Images/Video
+        <div className="flex gap-4">
+          <label className="flex cursor-pointer flex-col items-start gap-1">
+            <span className="rounded bg-slate-700 px-5 py-2.5 text-sm text-white hover:bg-slate-600">
+              Upload Images/Video
+            </span>
+            <span className="text-xs text-slate-500">Select files</span>
             <input
               type="file"
               accept="image/*,video/mp4"
@@ -309,9 +379,22 @@ export default function ManualEditor() {
               className="hidden"
             />
           </label>
+          <label className="flex cursor-pointer flex-col items-start gap-1">
+            <span className="rounded bg-slate-700 px-5 py-2.5 text-sm text-white hover:bg-slate-600">
+              Select folder
+            </span>
+            <span className="text-xs text-slate-500">Recursively finds images and videos</span>
+            <input
+              type="file"
+              {...{ webkitdirectory: '' }}
+              multiple
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+          </label>
           <button
             onClick={() => setShowTextForm(!showTextForm)}
-            className="rounded bg-slate-700 px-4 py-2 text-sm text-white hover:bg-slate-600"
+            className="self-end rounded bg-slate-700 px-5 py-2.5 text-sm text-white hover:bg-slate-600"
           >
             Add Text
           </button>
@@ -319,7 +402,7 @@ export default function ManualEditor() {
       </div>
 
       {showTextForm && (
-        <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-700 bg-slate-800/50 p-4">
+        <div className="flex flex-wrap items-end gap-6 rounded-xl border border-slate-700 bg-slate-800/50 p-6">
           <div>
             <label className="mb-1 block text-xs text-slate-400">Text</label>
             <input
@@ -359,12 +442,38 @@ export default function ManualEditor() {
         </div>
       )}
 
-      <div className="flex gap-6">
-        <div className=" rounded-lg border border-slate-700 bg-slate-900 p-4">
+      <div className="flex min-h-[420px] max-h-[calc(100vh-14rem)] flex-1 gap-8 overflow-hidden">
+        <div className="flex w-64 shrink-0 flex-col gap-3 overflow-hidden rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+          <h3 className="shrink-0 text-sm font-medium text-slate-300">Assets</h3>
+          <div className="flex min-h-0 flex-1 flex-wrap content-start gap-3 overflow-y-auto overflow-x-hidden overscroll-contain">
+            {assets.length === 0 ? (
+              <p className="text-xs leading-relaxed text-slate-500">
+                Upload images or a folder to add assets. Drag onto canvas to place.
+              </p>
+            ) : (
+              assets.map((asset) => (
+                <AssetThumb
+                  key={asset.id}
+                  asset={asset}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('application/x-asset-id', asset.id)
+                    e.dataTransfer.effectAllowed = 'copy'
+                  }}
+                />
+              ))
+            )}
+          </div>
+        </div>
+        <div
+          ref={stageContainerRef}
+          onDragOver={handleStageDragOver}
+          onDrop={handleStageDrop}
+          className="flex flex-1 items-start justify-start rounded-xl border border-slate-700 bg-slate-900 p-6"
+        >
           <Stage
             ref={stageRef}
-            width={width + 40}
-            height={height + 40}
+            width={width + 48}
+            height={height + 48}
             onClick={(e) => {
               if (e.target === e.target.getStage()) setSelectedId(null)
             }}
@@ -373,21 +482,37 @@ export default function ManualEditor() {
             }}
           >
             <Layer>
+              {/* Outside area — pasteboard, not exported; dark muted fill */}
               <Rect
                 x={0}
                 y={0}
-                width={width + 40}
-                height={height + 40}
+                width={width + 48}
+                height={height + 48}
                 fill="#1e293b"
+                stroke="#334155"
+                strokeWidth={1}
+                dash={[6, 4]}
+                listening={false}
               />
+              {/* Banner — clear export area: fill, bright border, dimension label */}
               <Rect
-                x={20}
-                y={20}
+                x={24}
+                y={24}
                 width={width}
                 height={height}
                 fill="#0f172a"
-                stroke="#334155"
-                strokeWidth={1}
+                stroke="#38bdf8"
+                strokeWidth={2}
+                listening={false}
+              />
+              <KonvaText
+                x={28}
+                y={28}
+                text={`${width}×${height}`}
+                fontSize={11}
+                fontFamily="sans-serif"
+                fill="#e2e8f0"
+                listening={false}
               />
               {elements.map((el) => {
                 if (el.type === 'image') {
@@ -425,17 +550,33 @@ export default function ManualEditor() {
           </Stage>
         </div>
 
-        <div className="w-56 shrink-0">
-          <h3 className="mb-2 text-sm font-medium text-slate-300">Layers</h3>
-          <div className="flex flex-col gap-1">
+        <div className="flex w-64 shrink-0 flex-col overflow-hidden">
+          <h3 className="mb-3 shrink-0 text-sm font-medium text-slate-300">Layers</h3>
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
             {[...elements].reverse().map((el) => (
               <div
                 key={el.id}
-                className={`flex items-center justify-between rounded border px-2 py-1.5 ${
+                draggable
+                onDragStart={(e) => {
+                  setDraggedLayerId(el.id)
+                  e.dataTransfer.setData('application/x-layer-id', el.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const draggedId = e.dataTransfer.getData('application/x-layer-id')
+                  if (draggedId && draggedId !== el.id) reorderLayer(draggedId, el.id)
+                }}
+                onDragEnd={() => setDraggedLayerId(null)}
+                className={`flex cursor-grab items-center justify-between rounded-lg border px-3 py-2 transition-opacity active:cursor-grabbing ${
                   selectedId === el.id
                     ? 'border-sky-500 bg-slate-700'
                     : 'border-slate-700 bg-slate-800'
-                }`}
+                } ${draggedLayerId === el.id ? 'opacity-50' : ''}`}
               >
                 <span
                   className="cursor-pointer truncate text-sm text-white"
@@ -447,21 +588,30 @@ export default function ManualEditor() {
                 </span>
                 <div className="flex gap-0.5">
                   <button
-                    onClick={() => moveLayer(el.id, 'up')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      moveLayer(el.id, 'up')
+                    }}
                     className="rounded p-0.5 text-xs text-slate-400 hover:bg-slate-600 hover:text-white"
                     title="Move up"
                   >
                     ↑
                   </button>
                   <button
-                    onClick={() => moveLayer(el.id, 'down')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      moveLayer(el.id, 'down')
+                    }}
                     className="rounded p-0.5 text-xs text-slate-400 hover:bg-slate-600 hover:text-white"
                     title="Move down"
                   >
                     ↓
                   </button>
                   <button
-                    onClick={() => deleteElement(el.id)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteElement(el.id)
+                    }}
                     className="rounded p-0.5 text-xs text-red-400 hover:bg-slate-600"
                     title="Delete"
                   >
@@ -473,6 +623,49 @@ export default function ManualEditor() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function AssetThumb({
+  asset,
+  onDragStart,
+}: {
+  asset: Asset
+  onDragStart: (e: React.DragEvent) => void
+}) {
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    const i = new window.Image()
+    i.onload = () => setLoaded(true)
+    i.src = asset.src
+  }, [asset.src])
+
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      className="flex cursor-grab flex-col items-center gap-1 rounded p-2 transition-colors hover:bg-slate-700/40 active:cursor-grabbing"
+      title={`${asset.name} — drag to canvas`}
+    >
+      <div
+        className="flex items-center justify-center overflow-hidden rounded-sm bg-slate-800/40"
+        style={{ width: ASSET_PREVIEW_SIZE, height: ASSET_PREVIEW_SIZE }}
+      >
+        {loaded ? (
+          <img
+            src={asset.src}
+            alt={asset.name}
+            className="max-h-full max-w-full object-contain"
+            draggable={false}
+          />
+        ) : (
+          <span className="text-xs text-slate-500">…</span>
+        )}
+      </div>
+      <span className="max-w-full truncate text-xs text-slate-400" title={asset.name}>
+        {asset.name}
+      </span>
     </div>
   )
 }
@@ -502,8 +695,8 @@ function ImageElement({
     <KonvaImage
       id={element.id}
       image={img}
-      x={20 + element.x}
-      y={20 + element.y}
+      x={24 + element.x}
+      y={24 + element.y}
       width={element.width}
       height={element.height}
       draggable={element.draggable}
@@ -530,8 +723,8 @@ function TextElement({
   return (
     <KonvaText
       id={element.id}
-      x={20 + element.x}
-      y={20 + element.y}
+      x={24 + element.x}
+      y={24 + element.y}
       text={element.text}
       fontSize={element.fontSize}
       fontFamily={element.fontFamily}

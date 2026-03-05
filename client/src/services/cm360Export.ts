@@ -1,11 +1,22 @@
 import JSZip from 'jszip'
 
+export type Platform = 'cm360' | 'ttd' | 'amazon-dsp' | 'stackadapt'
+
+export const PLATFORM_OPTIONS: { value: Platform; label: string }[] = [
+  { value: 'cm360', label: 'Campaign Manager 360' },
+  { value: 'ttd', label: 'The Trade Desk' },
+  { value: 'amazon-dsp', label: 'Amazon DSP' },
+  { value: 'stackadapt', label: 'StackAdapt' },
+]
+
 export interface CM360ExportConfig {
   width: number
   height: number
   clickUrl?: string
   html: string
   assets?: { name: string; data: Blob | string }[]
+  /** Override download filename (without .zip). Default: banner-{width}x{height} */
+  downloadName?: string
 }
 
 const CM360_MAX_FILES = 100
@@ -46,11 +57,70 @@ export async function createCM360ZipBlob(config: CM360ExportConfig): Promise<Blo
 
 export async function exportToCM360(config: CM360ExportConfig): Promise<void> {
   const blob = await createCM360ZipBlob(config)
+  const filename = config.downloadName
+    ? `${config.downloadName}.zip`
+    : `banner-${config.width}x${config.height}.zip`
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
-  link.download = `banner-${config.width}x${config.height}.zip`
+  link.download = filename
   link.click()
   URL.revokeObjectURL(link.href)
+}
+
+interface HtmlBuildConfig {
+  width: number
+  height: number
+  clickUrl?: string
+  bodyContent: string
+  extraStyles?: string
+  videoAssetName?: string
+}
+
+/** TTD/Amazon/StackAdapt: clickTAG from URL param, direct video src */
+function buildStandardHtml(config: HtmlBuildConfig): string {
+  const defaultClick = config.clickUrl || 'https://www.example.com'
+  const escapedClick = defaultClick.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"')
+  const hasVideo = !!config.videoAssetName
+  const assetName = config.videoAssetName || 'video.mp4'
+  const mediaContent = hasVideo
+    ? `<video autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover;"><source src="${assetName}" type="video/mp4"></video>`
+    : config.bodyContent
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="ad.size" content="width=${config.width},height=${config.height}">
+  <title>Banner Ad</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    ${config.extraStyles || ''}
+  </style>
+</head>
+<body>
+  <div style="position:relative;width:100%;height:100%;cursor:pointer;" id="ad-container">
+    <div style="position:relative;width:100%;height:100%;">
+      ${mediaContent}
+    </div>
+  </div>
+  <script type="text/javascript">
+    (function(){
+      function getParam(n){var r=new RegExp("[\\?&]"+n+"=([^&#]*)"),t=r.exec(location.search);return t?decodeURIComponent(t[1].replace(/\\+/g," ")):"";}
+      window.clickTAG=getParam("clickTAG")||getParam("clickTag")||"${escapedClick}";
+      document.getElementById("ad-container").onclick=function(){if(window.clickTAG)window.open(window.clickTAG,"_blank");};
+    })();
+  </script>
+</body>
+</html>`
+}
+
+export function buildPlatformHtml(platform: Platform, config: HtmlBuildConfig): string {
+  if (platform === 'cm360') return buildCM360Html(config)
+  if (platform === 'ttd' || platform === 'amazon-dsp' || platform === 'stackadapt') {
+    return buildStandardHtml(config)
+  }
+  return buildCM360Html(config)
 }
 
 export function buildCM360Html(config: {

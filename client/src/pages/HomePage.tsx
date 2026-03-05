@@ -2,6 +2,12 @@ import { Link } from 'react-router-dom'
 
 const sections = [
   {
+    path: '/dco',
+    title: 'Dynamic Creative Optimisation',
+    description:
+      'Learn about DCO, the 2026 market landscape, and use our production tools to scale display creatives across CM360, TTD, and more.',
+  },
+  {
     path: '/manual',
     title: 'Manual Editor',
     description:
