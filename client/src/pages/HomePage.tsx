@@ -8,6 +8,12 @@ const sections = [
       'Learn about DCO, the 2026 market landscape, and use our production tools to scale display creatives across CM360, TTD, and more.',
   },
   {
+    path: '/adobe-import',
+    title: 'Adobe / ICC Import',
+    description:
+      'Build display banners from Adobe Example assets (ICC templates). Pre-loaded logos, lens backgrounds, and product images. Export to CM360.',
+  },
+  {
     path: '/manual',
     title: 'Manual Editor',
     description:

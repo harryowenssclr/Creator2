@@ -8,7 +8,7 @@ import {
 } from 'react-konva'
 import { exportToCM360, buildCM360Html } from '../../services/cm360Export'
 
-const DIMENSION_PRESETS = [
+const DEFAULT_DIMENSION_PRESETS = [
   { w: 300, h: 250, label: '300×250' },
   { w: 300, h: 600, label: '300×600' },
   { w: 728, h: 90, label: '728×90' },
@@ -53,12 +53,52 @@ export type CanvasElement =
 const ASSET_PREVIEW_SIZE = 64
 const ASSET_CANVAS_MAX = 150
 
-export default function ManualEditor() {
-  const [width, setWidth] = useState(300)
-  const [height, setHeight] = useState(250)
+export type ManualEditorProps = {
+  initialAssets?: Array<{ src: string; name: string; width: number; height: number }>
+  initialDimensions?: { width: number; height: number }
+  dimensionPresets?: Array<{ w: number; h: number; label: string }>
+  title?: string
+}
+
+export default function ManualEditor(props: ManualEditorProps = {}) {
+  const {
+    initialAssets = [],
+    initialDimensions,
+    dimensionPresets = DEFAULT_DIMENSION_PRESETS,
+    title = 'Manual Editor',
+  } = props
+
+  const [width, setWidth] = useState(initialDimensions?.width ?? 300)
+  const [height, setHeight] = useState(initialDimensions?.height ?? 250)
   const [assets, setAssets] = useState<Asset[]>([])
   const [elements, setElements] = useState<CanvasElement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (initialAssets.length === 0) return
+    const loaded: Asset[] = []
+    let pending = initialAssets.length
+    initialAssets.forEach((a, i) => {
+      const img = new window.Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        loaded.push({
+          id: `asset-init-${i}-${Date.now()}`,
+          src: a.src,
+          name: a.name,
+          width: a.width || img.naturalWidth,
+          height: a.height || img.naturalHeight,
+        })
+        pending--
+        if (pending === 0) setAssets((prev) => [...loaded, ...prev])
+      }
+      img.onerror = () => {
+        pending--
+        if (pending === 0 && loaded.length > 0) setAssets((prev) => [...loaded, ...prev])
+      }
+      img.src = a.src
+    })
+  }, [initialAssets])
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [showTextForm, setShowTextForm] = useState(false)
   const [newText, setNewText] = useState('')
@@ -318,7 +358,7 @@ export default function ManualEditor() {
   return (
     <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-8">
       <div className="flex flex-wrap items-center justify-between gap-6">
-        <h1 className="text-2xl font-bold text-white">Manual Editor</h1>
+        <h1 className="text-2xl font-bold text-white">{title}</h1>
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <label className="text-sm text-slate-400">Click URL:</label>
@@ -347,7 +387,7 @@ export default function ManualEditor() {
         <div className="flex flex-col gap-2">
           <span className="text-sm text-slate-400">Dimensions</span>
           <div className="flex flex-wrap gap-3">
-            {DIMENSION_PRESETS.map(({ w, h, label }) => (
+            {dimensionPresets.map(({ w, h, label }) => (
               <button
                 key={label}
                 onClick={() => {

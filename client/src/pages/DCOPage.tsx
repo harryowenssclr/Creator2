@@ -103,6 +103,16 @@ export default function DCOPage() {
         </p>
         <div className="grid gap-4 sm:grid-cols-2">
           <Link
+            to="/adobe-import"
+            className="group flex items-start gap-4 rounded-xl border border-slate-700 bg-slate-900/50 p-4 transition-all hover:border-slate-600 hover:bg-slate-800/50"
+          >
+            <div className="rounded bg-slate-700 p-2 text-sky-400">📐</div>
+            <div>
+              <h3 className="font-medium text-white group-hover:text-sky-400">Adobe / ICC Import</h3>
+              <p className="text-sm text-slate-400">Build banners from Adobe Example ICC templates. Pre-loaded assets, export to CM360.</p>
+            </div>
+          </Link>
+          <Link
             to="/manual"
             className="group flex items-start gap-4 rounded-xl border border-slate-700 bg-slate-900/50 p-4 transition-all hover:border-slate-600 hover:bg-slate-800/50"
           >
