@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "creator-d86c1",
     "public": "client/dist",
     "ignore": [
       "firebase.json",
