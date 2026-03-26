@@ -3,6 +3,20 @@ import axios from 'axios'
 import JSZip from 'jszip'
 import { buildCM360Html } from '../../services/cm360Export'
 
+function axiosErrorMessage(err: unknown, fallback: string): string {
+  if (!axios.isAxiosError(err)) return fallback
+  const d = err.response?.data
+  if (d && typeof d === 'object' && 'error' in d) {
+    const e = (d as { error?: unknown }).error
+    if (typeof e === 'string' && e.trim()) return e.trim()
+  }
+  if (typeof d === 'string' && d.trim()) {
+    const text = d.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text) return text.slice(0, 400)
+  }
+  return err.message || fallback
+}
+
 const BANNER_SIZES = [
   { w: 300, h: 600 },
   { w: 300, h: 250 },
@@ -21,6 +35,9 @@ export default function SocialGenerator() {
   const [exporting, setExporting] = useState(false)
 
   const effectiveMediaUrl = mediaUrl || (manualMediaUrl.trim() || null)
+  const proxyRefererQs = postUrl.trim().startsWith('http')
+    ? `&referer=${encodeURIComponent(postUrl.trim())}`
+    : ''
 
   useEffect(() => {
     axios.get('/api/social/config').then(({ data }) => {
@@ -51,10 +68,7 @@ export default function SocialGenerator() {
         )
       }
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? err.response?.data?.error || err.message
-        : 'Failed to fetch post'
-      setError(msg)
+      setError(axiosErrorMessage(err, 'Failed to fetch post'))
     } finally {
       setLoading(false)
     }
@@ -70,10 +84,20 @@ export default function SocialGenerator() {
     setError(null)
     try {
       const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url) || url.includes('video')
-      const proxyUrl = `/api/social/proxy?url=${encodeURIComponent(url)}${isVideo ? '&type=video' : ''}`
+      const proxyUrl = `/api/social/proxy?url=${encodeURIComponent(url)}${isVideo ? '&type=video' : ''}${proxyRefererQs}`
 
       const response = await fetch(proxyUrl)
-      if (!response.ok) throw new Error('Failed to fetch media')
+      if (!response.ok) {
+        const raw = await response.text()
+        let detail = `HTTP ${response.status}`
+        try {
+          const j = JSON.parse(raw) as { error?: string }
+          if (j.error) detail = j.error
+        } catch {
+          if (raw.trim()) detail = raw.replace(/<[^>]+>/g, ' ').trim().slice(0, 300)
+        }
+        throw new Error(detail || 'Failed to fetch media')
+      }
       const blob = await response.blob()
       const blobIsVideo = blob.type?.startsWith('video/')
       const treatAsVideo = isVideo || blobIsVideo
@@ -132,7 +156,7 @@ export default function SocialGenerator() {
     } finally {
       setExporting(false)
     }
-  }, [effectiveMediaUrl, clickUrl])
+  }, [effectiveMediaUrl, clickUrl, postUrl, proxyRefererQs])
 
   const handleManualApply = useCallback(() => {
     if (manualMediaUrl.trim()) {
@@ -251,7 +275,7 @@ export default function SocialGenerator() {
                         key={effectiveMediaUrl}
                         src={
                           effectiveMediaUrl.startsWith('http')
-                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}&type=video`
+                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}&type=video${proxyRefererQs}`
                             : effectiveMediaUrl
                         }
                         muted
@@ -266,7 +290,7 @@ export default function SocialGenerator() {
                       <img
                         src={
                           effectiveMediaUrl.startsWith('http')
-                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}`
+                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}${proxyRefererQs}`
                             : effectiveMediaUrl
                         }
                         alt=""

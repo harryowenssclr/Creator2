@@ -102,16 +102,33 @@ async function fetchPageMeta(url) {
   }
 }
 
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
 socialRouter.get('/proxy', async (req, res) => {
   try {
-    const { url } = req.query
+    const { url, referer } = req.query
     if (!url || typeof url !== 'string') {
-      return res.status(400).send('URL required')
+      return res.status(400).json({ error: 'URL required' })
+    }
+    const ref =
+      typeof referer === 'string' && referer.startsWith('http') ? referer : undefined
+    let origin
+    if (ref) {
+      try {
+        origin = new URL(ref).origin
+      } catch {
+        /* invalid referer */
+      }
     }
     const { data, headers } = await axios.get(url, {
       responseType: 'arraybuffer',
-      timeout: 15000,
-      headers: { 'User-Agent': 'Creator-Banner-Editor/1.0' },
+      timeout: 30000,
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Accept: '*/*',
+        ...(ref && { Referer: ref, ...(origin && { Origin: origin }) }),
+      },
       maxRedirects: 5,
     })
     const contentType =
@@ -121,13 +138,25 @@ socialRouter.get('/proxy', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=3600')
     res.send(Buffer.from(data))
   } catch (err) {
-    res.status(500).send(err.message)
+    const status = axios.isAxiosError(err) ? err.response?.status : null
+    const hint =
+      status === 403 || status === 401
+        ? 'Host blocked this download (try opening the media URL in a browser, or paste a direct CDN link).'
+        : status
+          ? `Upstream returned ${status}.`
+          : null
+    const message =
+      hint ||
+      (axios.isAxiosError(err) ? err.message : err?.message) ||
+      'Proxy fetch failed'
+    res.status(502).json({ error: message })
   }
 })
 
 socialRouter.post('/fetch', async (req, res) => {
   try {
-    const { url } = req.body
+    const body = req.body && typeof req.body === 'object' ? req.body : {}
+    const { url } = body
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' })
     }
