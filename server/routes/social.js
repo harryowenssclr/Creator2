@@ -381,6 +381,8 @@ socialRouter.post('/fetch', async (req, res) => {
     }
 
     let cachedId = null
+    /** Shown when nothing could be extracted (plain-language / last tool stderr snippet). */
+    let fetchHint = null
     if (mediaBuffer) {
       cachedId = cacheBuffer(mediaBuffer, mediaContentType)
       if (cachedId) {
@@ -472,6 +474,10 @@ socialRouter.post('/fetch', async (req, res) => {
             `[social] yt-dlp cached ${(r.buffer.length / 1024).toFixed(0)} KB (${mediaType}) ${id}`,
           )
         }
+      } else if (!r.ok) {
+        const tail = (r.stderrTail || r.error || '').replace(/\s+/g, ' ').trim()
+        fetchHint =
+          tail.length > 320 ? `${tail.slice(0, 320)}…` : tail || 'yt-dlp could not download this link.'
       }
     }
 
@@ -504,12 +510,14 @@ socialRouter.post('/fetch', async (req, res) => {
       }
     }
 
+    const resolvedUrl = cachedId ? `/api/social/media/${cachedId}` : mediaUrl || null
     const payload = {
       ok: true,
-      mediaUrl: cachedId ? `/api/social/media/${cachedId}` : mediaUrl || null,
+      mediaUrl: resolvedUrl,
       mediaType: mediaType || 'image',
       source,
       cached: !!cachedId,
+      ...(!resolvedUrl && fetchHint ? { fetchHint } : {}),
     }
     if (SOCIAL_FETCH_DEBUG) {
       payload.debug = {

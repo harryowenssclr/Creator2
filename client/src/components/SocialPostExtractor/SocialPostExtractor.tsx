@@ -96,8 +96,13 @@ export default function SocialPostExtractor() {
         setFetchSource(typeof data.source === 'string' ? data.source : null)
         setFetchCached(Boolean(data.cached))
       } else {
+        const hint =
+          typeof data.fetchHint === 'string' && data.fetchHint.trim()
+            ? data.fetchHint.trim()
+            : null
         setError(
-          'Could not extract media from that link. Check the URL and try again.',
+          hint ||
+            'Could not extract media from that link. Check the URL and try again.',
         )
       }
     } catch (err: unknown) {

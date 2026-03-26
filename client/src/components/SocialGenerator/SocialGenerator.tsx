@@ -105,8 +105,13 @@ export default function SocialGenerator() {
         setMediaUrl(data.mediaUrl)
         setMediaType(data.mediaType === 'video' ? 'video' : 'image')
       } else {
+        const hint =
+          typeof data.fetchHint === 'string' && data.fetchHint.trim()
+            ? data.fetchHint.trim()
+            : null
         setError(
-          'Could not extract media. Try pasting the image/video URL manually below.',
+          hint ||
+            'Could not extract media. Try pasting the image/video URL manually below.',
         )
       }
     } catch (err: unknown) {
