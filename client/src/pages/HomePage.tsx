@@ -26,6 +26,12 @@ const sections = [
       'Paste a URL from Instagram, Facebook, or TikTok. Auto-generate 300×600 and 300×250 banners from the post content.',
   },
   {
+    path: '/social-extractor',
+    title: 'Social Post Extractor',
+    description:
+      'Download the raw image or video (e.g. MP4) from a social post link before editing or repurposing elsewhere.',
+  },
+  {
     path: '/website-assets',
     title: 'Website Assets',
     description:

@@ -3,6 +3,7 @@ import Layout from './components/common/Layout'
 import HomePage from './pages/HomePage'
 import ManualEditor from './pages/ManualEditor'
 import SocialGenerator from './pages/SocialGenerator'
+import SocialPostExtractor from './pages/SocialPostExtractor'
 import WebsiteAssets from './pages/WebsiteAssets'
 import MP4Converter from './pages/MP4Converter'
 import DCOPage from './pages/DCOPage'
@@ -17,6 +18,7 @@ function App() {
         <Route path="/adobe-import" element={<AdobeImport />} />
         <Route path="/manual" element={<ManualEditor />} />
         <Route path="/social" element={<SocialGenerator />} />
+        <Route path="/social-extractor" element={<SocialPostExtractor />} />
         <Route path="/website-assets" element={<WebsiteAssets />} />
         <Route path="/mp4-converter" element={<MP4Converter />} />
       </Routes>

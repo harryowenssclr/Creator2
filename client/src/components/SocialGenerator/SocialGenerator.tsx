@@ -1,84 +1,19 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import axios from 'axios'
 import JSZip from 'jszip'
+import {
+  extractInstagramUrlFromPaste,
+  ensureHttpUrl,
+  stripInstagramPostQuery,
+  mediaApiBase,
+  axiosErrorMessage,
+} from '../../lib/socialPostUrl'
 import { buildCM360Html } from '../../services/cm360Export'
-
-function decodeBasicHtmlEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-}
-
-/**
- * Accept a normal reel/post URL or full Instagram embed snippet (blockquote + script).
- */
-function extractInstagramUrlFromPaste(input: string): string {
-  const t = input.trim()
-  if (!t) return ''
-  const permalinkAttr = t.match(/data-instgrm-permalink="([^"]+)"/i)
-  if (permalinkAttr?.[1]) {
-    return decodeBasicHtmlEntities(permalinkAttr[1].trim())
-  }
-  const anyIg = t.match(
-    /https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[A-Za-z0-9_-]+[^\s"'<>]*/i,
-  )
-  if (anyIg?.[0]) {
-    return decodeBasicHtmlEntities(anyIg[0].trim())
-  }
-  return t
-}
-
-/** Match server: allow instagram.com/... without https:// */
-function ensureHttpUrl(raw: string): string | null {
-  const s = raw.trim()
-  if (!s) return null
-  if (/^https?:\/\//i.test(s)) return s
-  if (s.startsWith('//')) return `https:${s}`
-  return `https://${s.replace(/^\/+/, '')}`
-}
-
-/** e.g. ?utm_source=ig_web_copy_link — Instagram works the same without it */
-function stripInstagramPostQuery(url: string): string {
-  try {
-    const u = new URL(url)
-    if (!u.hostname.endsWith('instagram.com')) return url
-    if (!/\/(reel|p|tv)\//i.test(u.pathname)) return url
-    u.search = ''
-    return u.toString()
-  } catch {
-    return url
-  }
-}
-
-function axiosErrorMessage(err: unknown, fallback: string): string {
-  if (!axios.isAxiosError(err)) return fallback
-  const d = err.response?.data
-  if (d && typeof d === 'object' && 'error' in d) {
-    const e = (d as { error?: unknown }).error
-    if (typeof e === 'string' && e.trim()) return e.trim()
-  }
-  if (typeof d === 'string' && d.trim()) {
-    const text = d.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-    if (text) return text.slice(0, 400)
-  }
-  return err.message || fallback
-}
 
 const BANNER_SIZES = [
   { w: 300, h: 600 },
   { w: 300, h: 250 },
 ]
-
-/** Dev: load binary video directly from API — Vite's proxy can break Range/streaming. */
-function mediaApiBase(): string {
-  if (typeof window === 'undefined') return ''
-  if (!import.meta.env.DEV) return ''
-  const { protocol, hostname } = window.location
-  return `${protocol}//${hostname}:3001`
-}
 
 export default function SocialGenerator() {
   const [postUrl, setPostUrl] = useState('')
@@ -88,6 +23,7 @@ export default function SocialGenerator() {
   const [loading, setLoading] = useState(false)
   const [headlessEnabled, setHeadlessEnabled] = useState<boolean | null>(null)
   const [apifyEnabled, setApifyEnabled] = useState(false)
+  const [ytdlpAvailable, setYtdlpAvailable] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [exporting, setExporting] = useState(false)
@@ -112,7 +48,11 @@ export default function SocialGenerator() {
     axios.get('/api/social/config').then(({ data }) => {
       setHeadlessEnabled(data.headlessEnabled)
       setApifyEnabled(data.apifyEnabled ?? false)
-    }).catch(() => setHeadlessEnabled(false))
+      setYtdlpAvailable(data.ytdlpAvailable ?? null)
+    }).catch(() => {
+      setHeadlessEnabled(false)
+      setYtdlpAvailable(null)
+    })
   }, [])
 
   useEffect(() => {
@@ -300,10 +240,17 @@ export default function SocialGenerator() {
         ). TikTok and Facebook links work too. If extraction fails, paste a
         direct file URL below, or paste Instagram embed HTML instead of the link.
       </p>
-      {(headlessEnabled || apifyEnabled) && (
+      {(headlessEnabled || apifyEnabled || ytdlpAvailable) && (
         <p className="rounded bg-emerald-900/30 px-3 py-1.5 text-sm text-emerald-300">
           {headlessEnabled && 'Headless browser enabled. '}
-          {apifyEnabled && 'Apify fallback for Instagram (reliable video when headless fails).'}
+          {apifyEnabled && 'Apify fallback for Instagram. '}
+          {ytdlpAvailable && 'yt-dlp available (TikTok/Facebook/Instagram fallback). '}
+        </p>
+      )}
+      {ytdlpAvailable === false && (
+        <p className="rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
+          yt-dlp not detected on the server — install for TikTok/Facebook and stubborn reels (
+          <code className="text-amber-100">server/.env.example</code>).
         </p>
       )}
 

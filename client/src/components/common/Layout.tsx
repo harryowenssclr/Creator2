@@ -6,6 +6,7 @@ const navItems = [
   { path: '/adobe-import', label: 'Adobe Import' },
   { path: '/manual', label: 'Manual Editor' },
   { path: '/social', label: 'Social Generator' },
+  { path: '/social-extractor', label: 'Social Extractor' },
   { path: '/website-assets', label: 'Website Assets' },
   { path: '/mp4-converter', label: 'MP4 Converter' },
 ]
