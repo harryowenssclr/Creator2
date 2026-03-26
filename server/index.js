@@ -1,6 +1,7 @@
 import './loadEnv.js'
 import express from 'express'
 import cors from 'cors'
+import { resolveYtDlpBinary } from './lib/ytDlpResolve.js'
 import { socialRouter } from './routes/social.js'
 import { websiteRouter } from './routes/website.js'
 
@@ -26,5 +27,13 @@ app.use((err, req, res, next) => {
 })
 
 app.listen(PORT, () => {
+  const ytdlp = resolveYtDlpBinary()
   console.log(`Server running at http://localhost:${PORT}`)
+  if (ytdlp) {
+    console.log(`yt-dlp OK (${ytdlp})`)
+  } else {
+    console.warn(
+      'yt-dlp not found — Social Post Extractor /fetch will miss TikTok/Facebook and many reels. Install yt-dlp or set YT_DLP_PATH in server/.env',
+    )
+  }
 })

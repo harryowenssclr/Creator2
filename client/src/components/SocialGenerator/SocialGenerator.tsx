@@ -24,6 +24,7 @@ export default function SocialGenerator() {
   const [headlessEnabled, setHeadlessEnabled] = useState<boolean | null>(null)
   const [apifyEnabled, setApifyEnabled] = useState(false)
   const [ytdlpAvailable, setYtdlpAvailable] = useState<boolean | null>(null)
+  const [ytdlpHint, setYtdlpHint] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [exporting, setExporting] = useState(false)
@@ -49,9 +50,14 @@ export default function SocialGenerator() {
       setHeadlessEnabled(data.headlessEnabled)
       setApifyEnabled(data.apifyEnabled ?? false)
       setYtdlpAvailable(data.ytdlpAvailable ?? null)
+      const hint = data.ytdlpHint
+      setYtdlpHint(typeof hint === 'string' && hint.trim() ? hint.trim() : null)
     }).catch(() => {
       setHeadlessEnabled(false)
-      setYtdlpAvailable(null)
+      setYtdlpAvailable(false)
+      setYtdlpHint(
+        'Could not reach /api/social/config. Start the API on port 3001 (server npm run dev).',
+      )
     })
   }, [])
 
@@ -248,12 +254,14 @@ export default function SocialGenerator() {
         </p>
       )}
       {ytdlpAvailable === false && (
-        <p className="rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
-          yt-dlp not detected — on Windows try{' '}
-          <code className="text-amber-100">winget install yt-dlp.yt-dlp</code>, then restart the
-          server, or set <code className="text-amber-100">YT_DLP_PATH</code> (
-          <code className="text-amber-100">server/.env.example</code>).
-        </p>
+        <div className="space-y-2 rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
+          {ytdlpHint && <p className="font-medium text-amber-100">{ytdlpHint}</p>}
+          <p>
+            yt-dlp not detected — on Windows try{' '}
+            <code className="text-amber-100">winget install yt-dlp.yt-dlp</code>, restart the API, or
+            set <code className="text-amber-100">YT_DLP_PATH</code> in <code className="text-amber-100">server/.env</code>.
+          </p>
+        </div>
       )}
 
       <div className="flex flex-wrap items-end gap-4">

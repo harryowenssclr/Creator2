@@ -53,8 +53,12 @@ export function resolveYtDlpBinary() {
   return null
 }
 
-/** @returns {Promise<boolean>} */
+/**
+ * Fresh probe for GET /config — avoids a stale “not found” after installing yt-dlp
+ * or fixing .env without restarting (we still recommend restart).
+ */
 export function isYtDlpAvailable() {
+  clearYtDlpBinaryCache()
   return Promise.resolve(resolveYtDlpBinary() !== null)
 }
 

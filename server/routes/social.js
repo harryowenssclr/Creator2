@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { randomUUID } from 'crypto'
+import fs from 'fs'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
 import { headlessFetch } from '../lib/headlessFetch.js'
@@ -530,14 +531,37 @@ socialRouter.post('/fetch', async (req, res) => {
 })
 
 socialRouter.get('/config', async (req, res) => {
-  const ytdlpPathCustom = !!((process.env.YT_DLP_PATH || '').trim())
+  const customPath = (process.env.YT_DLP_PATH || '').trim()
+  const ytdlpPathCustom = !!customPath
+  let ytdlpPathFileExists = null
+  if (customPath) {
+    try {
+      ytdlpPathFileExists = fs.existsSync(customPath)
+    } catch {
+      ytdlpPathFileExists = false
+    }
+  }
   const ytdlpAvailable = await isYtDlpAvailable()
+
+  let ytdlpHint = null
+  if (customPath && ytdlpPathFileExists === false) {
+    ytdlpHint =
+      'YT_DLP_PATH points to a file that does not exist on this machine. Fix the path in server/.env.'
+  } else if (!ytdlpAvailable && customPath && ytdlpPathFileExists === true) {
+    ytdlpHint =
+      'YT_DLP_PATH exists but running “--version” failed (permissions, AV block, or wrong executable).'
+  } else if (!ytdlpAvailable && !customPath) {
+    ytdlpHint = 'Install yt-dlp on the server or set YT_DLP_PATH in server/.env (see .env.example).'
+  }
+
   res.json({
     headlessEnabled: USE_HEADLESS,
     apifyEnabled: !!APIFY_TOKEN,
     ytdlpPathCustom,
+    ytdlpPathFileExists,
     ytdlpCookiesConfigured: !!((process.env.YT_DLP_COOKIES || '').trim()),
     ytdlpAvailable,
+    ytdlpHint,
     fetchDebugEnabled: SOCIAL_FETCH_DEBUG,
   })
 })

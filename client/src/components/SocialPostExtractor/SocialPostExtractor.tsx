@@ -19,6 +19,7 @@ export default function SocialPostExtractor() {
   const [headlessEnabled, setHeadlessEnabled] = useState<boolean | null>(null)
   const [apifyEnabled, setApifyEnabled] = useState(false)
   const [ytdlpAvailable, setYtdlpAvailable] = useState<boolean | null>(null)
+  const [ytdlpHint, setYtdlpHint] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewMediaError, setPreviewMediaError] = useState<string | null>(null)
 
@@ -39,10 +40,15 @@ export default function SocialPostExtractor() {
         setHeadlessEnabled(data.headlessEnabled)
         setApifyEnabled(data.apifyEnabled ?? false)
         setYtdlpAvailable(data.ytdlpAvailable ?? null)
+        const hint = data.ytdlpHint
+        setYtdlpHint(typeof hint === 'string' && hint.trim() ? hint.trim() : null)
       })
       .catch(() => {
         setHeadlessEnabled(false)
-        setYtdlpAvailable(null)
+        setYtdlpAvailable(false)
+        setYtdlpHint(
+          'Could not reach /api/social/config. Start the server (npm run dev in server/, port 3001) so the Vite proxy can reach the API.',
+        )
       })
   }, [])
 
@@ -195,13 +201,17 @@ export default function SocialPostExtractor() {
         </p>
       )}
       {ytdlpAvailable === false && (
-        <p className="rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
-          yt-dlp was not detected on the server. On Windows try{' '}
-          <code className="text-amber-100">winget install yt-dlp.yt-dlp</code>, verify{' '}
-          <code className="text-amber-100">yt-dlp --version</code>, restart this app, or set{' '}
-          <code className="text-amber-100">YT_DLP_PATH</code> in <code className="text-amber-100">server/.env</code>{' '}
-          (see <code className="text-amber-100">server/.env.example</code>).
-        </p>
+        <div className="space-y-2 rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
+          {ytdlpHint && <p className="font-medium text-amber-100">{ytdlpHint}</p>}
+          <p>
+            yt-dlp was not detected on the server. On Windows try{' '}
+            <code className="text-amber-100">winget install yt-dlp.yt-dlp</code>, verify{' '}
+            <code className="text-amber-100">yt-dlp --version</code>, restart the API, or set{' '}
+            <code className="text-amber-100">YT_DLP_PATH</code> in <code className="text-amber-100">server/.env</code>{' '}
+            (see <code className="text-amber-100">server/.env.example</code>). Use forward slashes in
+            the path if backslashes act oddly.
+          </p>
+        </div>
       )}
 
       <div className="flex flex-wrap items-end gap-4">
