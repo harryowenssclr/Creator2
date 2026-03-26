@@ -46,5 +46,5 @@ COPY server/ ./server/
 COPY --from=client-build /app/client/dist ./client/dist
 
 WORKDIR /app/server
-EXPOSE 3001
+EXPOSE 8080
 CMD ["node", "index.js"]
