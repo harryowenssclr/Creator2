@@ -11,7 +11,9 @@ import { websiteRouter } from './routes/website.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
-const PORT = process.env.PORT || 3001
+const PORT = Number(process.env.PORT) || 3001
+/** Railway / Docker need all interfaces; use LISTEN_HOST=127.0.0.1 for local-only dev. */
+const LISTEN_HOST = process.env.LISTEN_HOST || '0.0.0.0'
 
 /** Built SPA — same origin as API in production (Railway, etc.). */
 const clientDist = path.join(__dirname, '..', 'client', 'dist')
@@ -45,10 +47,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Internal server error' })
 })
 
-app.listen(PORT, () => {
+app.listen(PORT, LISTEN_HOST, () => {
   const ytdlp = resolveYtDlpBinary()
   const ffmpeg = resolveFfmpegBinary()
-  console.log(`Server running at http://localhost:${PORT}${serveSpa ? ' (serving client/dist)' : ' (API only — run "cd client && npm run build" for SPA)'}`)
+  console.log(
+    `Server listening on http://${LISTEN_HOST}:${PORT}${serveSpa ? ' (serving client/dist)' : ' (API only — run "cd client && npm run build" for SPA)'}`,
+  )
   if (ytdlp) {
     console.log(`yt-dlp OK (${ytdlp})`)
   } else {
