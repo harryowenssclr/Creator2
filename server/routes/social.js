@@ -303,7 +303,16 @@ socialRouter.get('/proxy', async (req, res) => {
 })
 
 function logFetchEvent(obj) {
-  console.log(`[social/fetch] ${JSON.stringify({ ...obj, t: new Date().toISOString() })}`)
+  const row = { ...obj, t: new Date().toISOString() }
+  try {
+    console.log(
+      `[social/fetch] ${JSON.stringify(row, (_, v) =>
+        typeof v === 'function' || typeof v === 'symbol' ? undefined : typeof v === 'bigint' ? String(v) : v,
+      )}`,
+    )
+  } catch {
+    console.log('[social/fetch]', row.phase, row.error || row.after || '')
+  }
 }
 
 socialRouter.post('/fetch', async (req, res) => {
@@ -414,7 +423,8 @@ socialRouter.post('/fetch', async (req, res) => {
         cachedId = id
         console.log(`Cached media ${cachedId} (${mediaType}) from ${source} via direct download`)
       } else {
-        console.warn(`Could not cache media from ${source}: ${mediaUrl.slice(0, 120)}`)
+        const u = typeof mediaUrl === 'string' ? mediaUrl : String(mediaUrl ?? '')
+        console.warn(`Could not cache media from ${source}: ${u.slice(0, 120)}`)
       }
     }
 
@@ -533,13 +543,22 @@ socialRouter.post('/fetch', async (req, res) => {
         hadHeadlessSessionBuffer,
       }
     }
-    res.json(payload)
+    try {
+      res.json(payload)
+    } catch (serializationErr) {
+      console.error('[social/fetch] res.json failed:', serializationErr)
+      res.status(500).json({ error: 'Internal error formatting fetch response' })
+    }
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('[social/fetch]', err?.stack || err)
+    res.status(500).json({
+      error: err?.message || 'Fetch failed',
+    })
   }
 })
 
 socialRouter.get('/config', async (req, res) => {
+  try {
   const customPath = (process.env.YT_DLP_PATH || '').trim()
   const ytdlpPathCustom = !!customPath
   let ytdlpPathFileExists = null
@@ -599,5 +618,9 @@ socialRouter.get('/config', async (req, res) => {
     ffmpegHint,
     fetchDebugEnabled: SOCIAL_FETCH_DEBUG,
   })
+  } catch (err) {
+    console.error('[social/config]', err?.stack || err)
+    res.status(500).json({ error: err?.message || 'Config failed' })
+  }
 })
 

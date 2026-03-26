@@ -136,7 +136,13 @@ export async function ytDlpFetch(url) {
     }
   }
 
-  const dir = await mkdtemp(join(tmpdir(), 'creator-ytdlp-'))
+  let dir
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'creator-ytdlp-'))
+  } catch (err) {
+    return { ok: false, error: `Could not create temp dir: ${err.message}` }
+  }
+
   const outTmpl = join(dir, 'media.%(ext)s')
   let stderrAll = ''
   const ff = ffmpegLocationArgs()
@@ -193,7 +199,12 @@ export async function ytDlpFetch(url) {
 
   try {
     for (const { label, args } of attempts) {
-      await emptyDir(dir)
+      try {
+        await emptyDir(dir)
+      } catch (err) {
+        stderrAll += `[${label}] emptyDir: ${err.message}\n`
+        continue
+      }
       try {
         const { stderr } = await execFileP(bin, args, {
           timeout: 180_000,
@@ -207,7 +218,13 @@ export async function ytDlpFetch(url) {
         continue
       }
 
-      const picked = await largestFileInDir(dir)
+      let picked
+      try {
+        picked = await largestFileInDir(dir)
+      } catch (err) {
+        stderrAll += `[${label}] list dir: ${err.message}\n`
+        continue
+      }
       if (!picked || picked.size < 1000) {
         stderrAll += `[${label}] no output file or too small\n`
         continue
@@ -220,7 +237,13 @@ export async function ytDlpFetch(url) {
         }
       }
 
-      const buffer = await readFile(picked.path)
+      let buffer
+      try {
+        buffer = await readFile(picked.path)
+      } catch (err) {
+        stderrAll += `[${label}] readFile: ${err.message}\n`
+        continue
+      }
       const kind = classifyBuffer(buffer)
       if (!kind) {
         stderrAll += `[${label}] output not recognized as video/image\n`
@@ -234,6 +257,12 @@ export async function ytDlpFetch(url) {
       ok: false,
       error: 'yt-dlp could not download this URL (all format attempts failed)',
       stderrTail: stderrAll.slice(-1200),
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.message || 'yt-dlp run failed',
+      stderrTail: stderrAll.slice(-800),
     }
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {})
