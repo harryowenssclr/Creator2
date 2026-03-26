@@ -249,7 +249,9 @@ export default function SocialGenerator() {
       )}
       {ytdlpAvailable === false && (
         <p className="rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
-          yt-dlp not detected on the server — install for TikTok/Facebook and stubborn reels (
+          yt-dlp not detected — on Windows try{' '}
+          <code className="text-amber-100">winget install yt-dlp.yt-dlp</code>, then restart the
+          server, or set <code className="text-amber-100">YT_DLP_PATH</code> (
           <code className="text-amber-100">server/.env.example</code>).
         </p>
       )}

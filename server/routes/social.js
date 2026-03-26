@@ -2,8 +2,8 @@ import { Router } from 'express'
 import { randomUUID } from 'crypto'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
-import { spawn } from 'child_process'
 import { headlessFetch } from '../lib/headlessFetch.js'
+import { isYtDlpAvailable } from '../lib/ytDlpResolve.js'
 import { apifyFetchInstagram } from '../lib/apifyFetch.js'
 import { ytDlpFetch, isYtdlpSupportedUrl } from '../lib/ytDlpFetch.js'
 
@@ -251,20 +251,6 @@ async function fetchPageMeta(url) {
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-
-/** Best-effort: is yt-dlp executable working? (cached promise) */
-let ytdlpCheckPromise = null
-function getYtdlpBinaryAvailable() {
-  if (!ytdlpCheckPromise) {
-    const bin = (process.env.YT_DLP_PATH || 'yt-dlp').trim()
-    ytdlpCheckPromise = new Promise((resolve) => {
-      const r = spawn(bin, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] })
-      r.on('error', () => resolve(false))
-      r.on('close', (code) => resolve(code === 0))
-    })
-  }
-  return ytdlpCheckPromise
-}
 
 socialRouter.get('/proxy', async (req, res) => {
   try {
@@ -545,7 +531,7 @@ socialRouter.post('/fetch', async (req, res) => {
 
 socialRouter.get('/config', async (req, res) => {
   const ytdlpPathCustom = !!((process.env.YT_DLP_PATH || '').trim())
-  const ytdlpAvailable = await getYtdlpBinaryAvailable()
+  const ytdlpAvailable = await isYtDlpAvailable()
   res.json({
     headlessEnabled: USE_HEADLESS,
     apifyEnabled: !!APIFY_TOKEN,

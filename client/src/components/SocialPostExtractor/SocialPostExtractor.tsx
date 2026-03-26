@@ -196,9 +196,11 @@ export default function SocialPostExtractor() {
       )}
       {ytdlpAvailable === false && (
         <p className="rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
-          yt-dlp was not detected on the server. Install it and ensure it is on PATH (or set
-          YT_DLP_PATH) for reliable TikTok/Facebook downloads and harder Instagram reels — see{' '}
-          <code className="text-amber-100">server/.env.example</code>.
+          yt-dlp was not detected on the server. On Windows try{' '}
+          <code className="text-amber-100">winget install yt-dlp.yt-dlp</code>, verify{' '}
+          <code className="text-amber-100">yt-dlp --version</code>, restart this app, or set{' '}
+          <code className="text-amber-100">YT_DLP_PATH</code> in <code className="text-amber-100">server/.env</code>{' '}
+          (see <code className="text-amber-100">server/.env.example</code>).
         </p>
       )}
 

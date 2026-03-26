@@ -3,11 +3,12 @@
  * Supports Instagram, TikTok, Facebook, and many other sites with maintained extractors.
  *
  * Env:
- *   YT_DLP_PATH — path to yt-dlp executable (default: yt-dlp on PATH)
+ *   YT_DLP_PATH — path to yt-dlp executable (optional; on Windows we also try yt-dlp.exe / .cmd on PATH)
  *   YT_DLP_COOKIES — optional Netscape cookies.txt path (improves IG/FB when logged in)
  */
 
 import { spawn } from 'child_process'
+import { getYtDlpCommandOrNull } from './ytDlpResolve.js'
 
 const MAX_BYTES = 50 * 1024 * 1024
 
@@ -59,10 +60,17 @@ export function isYtdlpSupportedUrl(url) {
  * @returns {Promise<{ ok: boolean, buffer?: Buffer, contentType?: string, mediaType?: string, error?: string, stderrTail?: string }>}
  */
 export function ytDlpFetch(url) {
-  const bin = (process.env.YT_DLP_PATH || 'yt-dlp').trim()
+  const bin = getYtDlpCommandOrNull()
   const cookies = (process.env.YT_DLP_COOKIES || '').trim()
 
   return new Promise((resolve) => {
+    if (!bin) {
+      return resolve({
+        ok: false,
+        error:
+          'yt-dlp not found. Install from https://github.com/yt-dlp/yt-dlp/releases or set YT_DLP_PATH (see server/.env.example).',
+      })
+    }
     const args = [
       '--no-playlist',
       '--no-warnings',
