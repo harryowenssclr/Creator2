@@ -43,6 +43,8 @@ export default function SocialGenerator() {
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [exporting, setExporting] = useState(false)
   const [previewMediaError, setPreviewMediaError] = useState<string | null>(null)
+  /** Try CDN URL in the browser first; many hosts block the server proxy but allow playback in-page. */
+  const [previewUseProxy, setPreviewUseProxy] = useState(false)
 
   const effectiveMediaUrl =
     mediaUrl ??
@@ -60,7 +62,18 @@ export default function SocialGenerator() {
 
   useEffect(() => {
     setPreviewMediaError(null)
+    setPreviewUseProxy(false)
   }, [effectiveMediaUrl])
+
+  function previewSrc(asVideo: boolean): string {
+    if (!effectiveMediaUrl) return ''
+    if (!effectiveMediaUrl.startsWith('http')) return effectiveMediaUrl
+    if (previewUseProxy) {
+      const typeQs = asVideo ? '&type=video' : ''
+      return `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}${typeQs}${proxyRefererQs}`
+    }
+    return effectiveMediaUrl
+  }
 
   const handleFetch = useCallback(async () => {
     const normalized = ensureHttpUrl(postUrl)
@@ -299,12 +312,8 @@ export default function SocialGenerator() {
                   >
                     {isVideo ? (
                       <video
-                        key={effectiveMediaUrl}
-                        src={
-                          effectiveMediaUrl.startsWith('http')
-                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}&type=video${proxyRefererQs}`
-                            : effectiveMediaUrl
-                        }
+                        key={`${effectiveMediaUrl}-pv${previewUseProxy ? '1' : '0'}`}
+                        src={previewSrc(true)}
                         muted
                         loop
                         playsInline
@@ -312,26 +321,37 @@ export default function SocialGenerator() {
                         controls
                         preload="auto"
                         className="h-full w-full object-cover"
-                        onError={() =>
+                        onError={() => {
+                          if (
+                            effectiveMediaUrl.startsWith('http') &&
+                            !previewUseProxy
+                          ) {
+                            setPreviewUseProxy(true)
+                            return
+                          }
                           setPreviewMediaError(
-                            'Preview failed to load video (CDN may block the proxy). Try a direct .mp4 URL or export may still work.',
+                            'Preview could not load this video (URL may be expired or blocked). Export still uses the server to fetch the file.',
                           )
-                        }
+                        }}
                       />
                     ) : (
                       <img
-                        src={
-                          effectiveMediaUrl.startsWith('http')
-                            ? `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}${proxyRefererQs}`
-                            : effectiveMediaUrl
-                        }
+                        key={`${effectiveMediaUrl}-pi${previewUseProxy ? '1' : '0'}`}
+                        src={previewSrc(false)}
                         alt=""
                         className="h-full w-full object-cover"
-                        onError={() =>
+                        onError={() => {
+                          if (
+                            effectiveMediaUrl.startsWith('http') &&
+                            !previewUseProxy
+                          ) {
+                            setPreviewUseProxy(true)
+                            return
+                          }
                           setPreviewMediaError(
-                            'Preview failed to load image (link may require https:// or CDN blocked the download).',
+                            'Preview could not load this image. Open the URL in a new tab to confirm it still works.',
                           )
-                        }
+                        }}
                       />
                     )}
                   </div>
