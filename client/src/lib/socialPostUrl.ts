@@ -44,12 +44,53 @@ export function stripInstagramPostQuery(url: string): string {
   }
 }
 
-/** Dev: binary media from API — Vite proxy can break Range/streaming for video. */
-export function mediaApiBase(): string {
+/**
+ * Origin of the Express API (Social routes, proxy, media cache).
+ * - Local dev: same host as the page, port 3001 (avoids Vite proxy issues for video bytes).
+ * - Production (Firebase, etc.): set `VITE_API_BASE_URL` when building (e.g. https://your-api.run.app).
+ */
+export function socialApiOrigin(): string {
+  const fromEnv =
+    (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '') ?? ''
+  if (fromEnv) return fromEnv
   if (typeof window === 'undefined') return ''
-  if (!import.meta.env.DEV) return ''
-  const { protocol, hostname } = window.location
-  return `${protocol}//${hostname}:3001`
+  if (import.meta.env.DEV) {
+    const { protocol, hostname } = window.location
+    return `${protocol}//${hostname}:3001`
+  }
+  return ''
+}
+
+/** `/api/...` path → absolute URL when an API origin is configured. */
+export function socialApiUrl(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`
+  const origin = socialApiOrigin()
+  return origin ? `${origin}${p}` : p
+}
+
+/**
+ * Preview / download URL: cached `/api/social/media/...` or proxy URL for external CDN links.
+ */
+export function socialMediaSrc(opts: {
+  mediaUrl: string | null
+  asVideo: boolean
+  proxyRefererQs: string
+}): string {
+  const { mediaUrl, asVideo, proxyRefererQs } = opts
+  if (!mediaUrl) return ''
+  const origin = socialApiOrigin()
+  if (mediaUrl.startsWith('/api/')) {
+    return origin ? `${origin}${mediaUrl}` : mediaUrl
+  }
+  if (!mediaUrl.startsWith('http')) return mediaUrl
+  const typeQs = asVideo ? '&type=video' : ''
+  const path = `/api/social/proxy?url=${encodeURIComponent(mediaUrl)}${typeQs}${proxyRefererQs}`
+  return origin ? `${origin}${path}` : path
+}
+
+/** @deprecated Use {@link socialApiOrigin} */
+export function mediaApiBase(): string {
+  return socialApiOrigin()
 }
 
 export function axiosErrorMessage(err: unknown, fallback: string): string {

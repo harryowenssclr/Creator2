@@ -4,6 +4,7 @@ server/.env
 .env
 .env.*
 !server/.env.example
+!client/.env.example
 *.log
 .DS_Store
 .firebase

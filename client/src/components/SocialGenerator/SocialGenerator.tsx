@@ -4,7 +4,9 @@ import {
   extractInstagramUrlFromPaste,
   ensureHttpUrl,
   stripInstagramPostQuery,
-  mediaApiBase,
+  socialApiOrigin,
+  socialApiUrl,
+  socialMediaSrc,
   axiosErrorMessage,
 } from '../../lib/socialPostUrl'
 import { buildPlatformHtml, exportToCM360 } from '../../services/cm360Export'
@@ -124,7 +126,7 @@ export default function SocialGenerator() {
   }, [])
 
   useEffect(() => {
-    axios.get('/api/social/config').then(({ data }) => {
+    axios.get(socialApiUrl('/api/social/config')).then(({ data }) => {
       setApiConnectionError(null)
       setHeadlessEnabled(data.headlessEnabled)
       setApifyEnabled(data.apifyEnabled ?? false)
@@ -144,7 +146,9 @@ export default function SocialGenerator() {
       setFfmpegHint(null)
       setFfmpegCompressForCm360(null)
       setApiConnectionError(
-        'Could not reach the API. From the repo root run npm run dev, or in another terminal: cd server && npm run dev (port 3001).',
+        import.meta.env.PROD && !import.meta.env.VITE_API_BASE_URL
+          ? 'Could not reach the API. Rebuild the client with VITE_API_BASE_URL set to your deployed backend URL (Express server from /server), e.g. in client/.env.production.'
+          : 'Could not reach the API. From the repo root run npm run dev, or in another terminal: cd server && npm run dev (port 3001).',
       )
     })
   }, [])
@@ -155,7 +159,7 @@ export default function SocialGenerator() {
 
   const fetchPostMedia = useCallback(async (forApi: string, signal?: AbortSignal) => {
     const { data } = await axios.post(
-      '/api/social/fetch',
+      socialApiUrl('/api/social/fetch'),
       { url: forApi },
       {
         timeout: 90000,
@@ -220,19 +224,13 @@ export default function SocialGenerator() {
     }
   }, [postUrl, fetchPostMedia])
 
-  /**
-   * Cached media comes back as /api/social/media/:id — already local.
-   * Manual external URLs still need the proxy.
-   */
+  /** Cached media `/api/social/media/:id` or proxy for external URLs; production uses VITE_API_BASE_URL. */
   function mediaSrc(_asVideo: boolean): string {
-    if (!effectiveMediaUrl) return ''
-    if (effectiveMediaUrl.startsWith('/api/')) {
-      const base = mediaApiBase()
-      return base ? `${base}${effectiveMediaUrl}` : effectiveMediaUrl
-    }
-    if (!effectiveMediaUrl.startsWith('http')) return effectiveMediaUrl
-    const typeQs = _asVideo ? '&type=video' : ''
-    return `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}${typeQs}${proxyRefererQs}`
+    return socialMediaSrc({
+      mediaUrl: effectiveMediaUrl,
+      asVideo: _asVideo,
+      proxyRefererQs,
+    })
   }
 
   const handleFetch = useCallback(async () => {
@@ -278,7 +276,7 @@ export default function SocialGenerator() {
           resolvedType === 'video' ||
           /\.(mp4|webm|mov)(\?|$)/i.test(url) ||
           url.includes('video')
-        const base = mediaApiBase()
+        const base = socialApiOrigin()
         const path = url.startsWith('/api/')
           ? url
           : `/api/social/proxy?url=${encodeURIComponent(url)}${isVideo ? '&type=video' : ''}${proxyRefererQs}`

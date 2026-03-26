@@ -1,4 +1,7 @@
 import './loadEnv.js'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import express from 'express'
 import cors from 'cors'
 import { resolveYtDlpBinary } from './lib/ytDlpResolve.js'
@@ -6,8 +9,13 @@ import { resolveFfmpegBinary } from './lib/ffmpegResolve.js'
 import { socialRouter } from './routes/social.js'
 import { websiteRouter } from './routes/website.js'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3001
+
+/** Built SPA — same origin as API in production (Railway, etc.). */
+const clientDist = path.join(__dirname, '..', 'client', 'dist')
+const serveSpa = fs.existsSync(path.join(clientDist, 'index.html'))
 
 app.use(cors())
 app.use(express.json())
@@ -18,6 +26,16 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/social', socialRouter)
 app.use('/api/website', websiteRouter)
+
+if (serveSpa) {
+  app.use(express.static(clientDist, { index: false }))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next()
+    res.sendFile(path.join(clientDist, 'index.html'), (err) => {
+      if (err) next(err)
+    })
+  })
+}
 
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
@@ -30,7 +48,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   const ytdlp = resolveYtDlpBinary()
   const ffmpeg = resolveFfmpegBinary()
-  console.log(`Server running at http://localhost:${PORT}`)
+  console.log(`Server running at http://localhost:${PORT}${serveSpa ? ' (serving client/dist)' : ' (API only — run "cd client && npm run build" for SPA)'}`)
   if (ytdlp) {
     console.log(`yt-dlp OK (${ytdlp})`)
   } else {

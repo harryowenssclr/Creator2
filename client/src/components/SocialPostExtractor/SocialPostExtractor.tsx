@@ -4,7 +4,9 @@ import {
   extractInstagramUrlFromPaste,
   ensureHttpUrl,
   stripInstagramPostQuery,
-  mediaApiBase,
+  socialApiOrigin,
+  socialApiUrl,
+  socialMediaSrc,
   axiosErrorMessage,
 } from '../../lib/socialPostUrl'
 
@@ -38,7 +40,7 @@ export default function SocialPostExtractor() {
 
   useEffect(() => {
     axios
-      .get('/api/social/config')
+      .get(socialApiUrl('/api/social/config'))
       .then(({ data }) => {
         setApiConnectionError(null)
         setHeadlessEnabled(data.headlessEnabled)
@@ -56,7 +58,9 @@ export default function SocialPostExtractor() {
         setYtdlpHint(null)
         setFfmpegHint(null)
         setApiConnectionError(
-          'Could not reach the API. From the Creator2 repo root run npm run dev (starts client + server). If you only run the client, start the API in another terminal: cd server then npm run dev (port 3001).',
+          import.meta.env.PROD && !import.meta.env.VITE_API_BASE_URL
+            ? 'Could not reach the API. Rebuild with VITE_API_BASE_URL pointing at your deployed backend. See client/.env.example.'
+            : 'Could not reach the API. From the Creator2 repo root run npm run dev (starts client + server). If you only run the client, start the API in another terminal: cd server then npm run dev (port 3001).',
         )
       })
   }, [])
@@ -66,14 +70,7 @@ export default function SocialPostExtractor() {
   }, [mediaUrl])
 
   function mediaSrc(asVideo: boolean): string {
-    if (!mediaUrl) return ''
-    if (mediaUrl.startsWith('/api/')) {
-      const base = mediaApiBase()
-      return base ? `${base}${mediaUrl}` : mediaUrl
-    }
-    if (!mediaUrl.startsWith('http')) return mediaUrl
-    const typeQs = asVideo ? '&type=video' : ''
-    return `/api/social/proxy?url=${encodeURIComponent(mediaUrl)}${typeQs}${proxyRefererQs}`
+    return socialMediaSrc({ mediaUrl, asVideo, proxyRefererQs })
   }
 
   const handleFetch = useCallback(async () => {
@@ -92,7 +89,7 @@ export default function SocialPostExtractor() {
     setFetchCached(null)
     try {
       const { data } = await axios.post(
-        '/api/social/fetch',
+        socialApiUrl('/api/social/fetch'),
         { url: forApi },
         {
           timeout: 90000,
@@ -136,7 +133,7 @@ export default function SocialPostExtractor() {
         url.includes('/video/') ||
         /cdninstagram\.com.*mp4|tiktokcdn.*video|fbcdn\.net.*mp4/i.test(url)
 
-      const base = mediaApiBase()
+      const base = socialApiOrigin()
       const path = url.startsWith('/api/')
         ? url
         : `/api/social/proxy?url=${encodeURIComponent(url)}${isVideoHint ? '&type=video' : ''}${proxyRefererQs}`

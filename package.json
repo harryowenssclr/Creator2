@@ -9,7 +9,8 @@
     "build": "cd client && npm run build",
     "install:all": "npm install && cd client && npm install && cd ../server && npm install",
     "deploy": "npm run build && firebase deploy",
-    "deploy:hosting": "npm run build && firebase deploy --only hosting"
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "docker:build": "docker build -t creator2 ."
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

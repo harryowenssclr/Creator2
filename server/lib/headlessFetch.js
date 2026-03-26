@@ -13,8 +13,11 @@ async function getBrowser() {
   const puppeteer = await import('puppeteer-extra')
   const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default
   puppeteer.default.use(StealthPlugin())
+  const executablePath =
+    (process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || '').trim() || undefined
   browserInstance = await puppeteer.default.launch({
     headless: true,
+    ...(executablePath ? { executablePath } : {}),
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
