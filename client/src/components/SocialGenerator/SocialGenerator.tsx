@@ -1,7 +1,35 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import axios from 'axios'
 import JSZip from 'jszip'
 import { buildCM360Html } from '../../services/cm360Export'
+
+function decodeBasicHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+}
+
+/**
+ * Accept a normal reel/post URL or full Instagram embed snippet (blockquote + script).
+ */
+function extractInstagramUrlFromPaste(input: string): string {
+  const t = input.trim()
+  if (!t) return ''
+  const permalinkAttr = t.match(/data-instgrm-permalink="([^"]+)"/i)
+  if (permalinkAttr?.[1]) {
+    return decodeBasicHtmlEntities(permalinkAttr[1].trim())
+  }
+  const anyIg = t.match(
+    /https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[A-Za-z0-9_-]+[^\s"'<>]*/i,
+  )
+  if (anyIg?.[0]) {
+    return decodeBasicHtmlEntities(anyIg[0].trim())
+  }
+  return t
+}
 
 /** Match server: allow instagram.com/... without https:// */
 function ensureHttpUrl(raw: string): string | null {
@@ -10,6 +38,19 @@ function ensureHttpUrl(raw: string): string | null {
   if (/^https?:\/\//i.test(s)) return s
   if (s.startsWith('//')) return `https:${s}`
   return `https://${s.replace(/^\/+/, '')}`
+}
+
+/** e.g. ?utm_source=ig_web_copy_link — Instagram works the same without it */
+function stripInstagramPostQuery(url: string): string {
+  try {
+    const u = new URL(url)
+    if (!u.hostname.endsWith('instagram.com')) return url
+    if (!/\/(reel|p|tv)\//i.test(u.pathname)) return url
+    u.search = ''
+    return u.toString()
+  } catch {
+    return url
+  }
 }
 
 function axiosErrorMessage(err: unknown, fallback: string): string {
@@ -31,6 +72,14 @@ const BANNER_SIZES = [
   { w: 300, h: 250 },
 ]
 
+/** Dev: load binary video directly from API — Vite's proxy can break Range/streaming. */
+function mediaApiBase(): string {
+  if (typeof window === 'undefined') return ''
+  if (!import.meta.env.DEV) return ''
+  const { protocol, hostname } = window.location
+  return `${protocol}//${hostname}:3001`
+}
+
 export default function SocialGenerator() {
   const [postUrl, setPostUrl] = useState('')
   const [manualMediaUrl, setManualMediaUrl] = useState('')
@@ -43,14 +92,20 @@ export default function SocialGenerator() {
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [exporting, setExporting] = useState(false)
   const [previewMediaError, setPreviewMediaError] = useState<string | null>(null)
-  /** Try CDN URL in the browser first; many hosts block the server proxy but allow playback in-page. */
-  const [previewUseProxy, setPreviewUseProxy] = useState(false)
 
   const effectiveMediaUrl =
     mediaUrl ??
     (manualMediaUrl.trim() ? ensureHttpUrl(manualMediaUrl) : null)
-  const proxyRefererQs = postUrl.trim().startsWith('http')
-    ? `&referer=${encodeURIComponent(postUrl.trim())}`
+
+  /** For manual external URLs, build a proxy query string with referer. */
+  const postUrlForReferer = useMemo(() => {
+    const extracted = extractInstagramUrlFromPaste(postUrl)
+    const u = ensureHttpUrl(extracted)
+    return u ? stripInstagramPostQuery(u) : ''
+  }, [postUrl])
+
+  const proxyRefererQs = postUrlForReferer.startsWith('http')
+    ? `&referer=${encodeURIComponent(postUrlForReferer)}`
     : ''
 
   useEffect(() => {
@@ -62,25 +117,31 @@ export default function SocialGenerator() {
 
   useEffect(() => {
     setPreviewMediaError(null)
-    setPreviewUseProxy(false)
   }, [effectiveMediaUrl])
 
-  function previewSrc(asVideo: boolean): string {
+  /**
+   * Cached media comes back as /api/social/media/:id — already local.
+   * Manual external URLs still need the proxy.
+   */
+  function mediaSrc(_asVideo: boolean): string {
     if (!effectiveMediaUrl) return ''
-    if (!effectiveMediaUrl.startsWith('http')) return effectiveMediaUrl
-    if (previewUseProxy) {
-      const typeQs = asVideo ? '&type=video' : ''
-      return `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}${typeQs}${proxyRefererQs}`
+    if (effectiveMediaUrl.startsWith('/api/')) {
+      const base = mediaApiBase()
+      return base ? `${base}${effectiveMediaUrl}` : effectiveMediaUrl
     }
-    return effectiveMediaUrl
+    if (!effectiveMediaUrl.startsWith('http')) return effectiveMediaUrl
+    const typeQs = _asVideo ? '&type=video' : ''
+    return `/api/social/proxy?url=${encodeURIComponent(effectiveMediaUrl)}${typeQs}${proxyRefererQs}`
   }
 
   const handleFetch = useCallback(async () => {
-    const normalized = ensureHttpUrl(postUrl)
+    const extracted = extractInstagramUrlFromPaste(postUrl)
+    const normalized = ensureHttpUrl(extracted)
     if (!normalized) {
-      setError('Please enter a post URL')
+      setError('Please enter a post URL or Instagram embed snippet')
       return
     }
+    const forApi = stripInstagramPostQuery(normalized)
     setLoading(true)
     setError(null)
     setMediaUrl(null)
@@ -88,7 +149,7 @@ export default function SocialGenerator() {
     try {
       const { data } = await axios.post(
         '/api/social/fetch',
-        { url: normalized },
+        { url: forApi },
         {
           timeout: 90000,
           headers: { 'Content-Type': 'application/json' },
@@ -119,9 +180,13 @@ export default function SocialGenerator() {
     setError(null)
     try {
       const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url) || url.includes('video')
-      const proxyUrl = `/api/social/proxy?url=${encodeURIComponent(url)}${isVideo ? '&type=video' : ''}${proxyRefererQs}`
+      const base = mediaApiBase()
+      const path = url.startsWith('/api/')
+        ? url
+        : `/api/social/proxy?url=${encodeURIComponent(url)}${isVideo ? '&type=video' : ''}${proxyRefererQs}`
+      const fetchUrl = path.startsWith('http') ? path : (base ? `${base}${path}` : path)
 
-      const response = await fetch(proxyUrl)
+      const response = await fetch(fetchUrl)
       if (!response.ok) {
         const raw = await response.text()
         let detail = `HTTP ${response.status}`
@@ -211,15 +276,29 @@ export default function SocialGenerator() {
       effectiveMediaUrl.includes('/video/') ||
       /cdninstagram\.com.*mp4|tiktokcdn.*video|fbcdn\.net.*mp4/i.test(effectiveMediaUrl))
 
+  const reelPosterOnly = useMemo(
+    () =>
+      postUrlForReferer.includes('/reel/') &&
+      Boolean(mediaUrl) &&
+      mediaType === 'image',
+    [postUrlForReferer, mediaUrl, mediaType],
+  )
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-white">Social Generator</h1>
       <p className="text-slate-400">
-        Paste a social post URL (Instagram, Facebook, TikTok, etc.) to
-        auto-generate 300×600 and 300×250 banners. Video posts produce video
-        banners (like Nova/Spaceback). If extraction fails, paste the image or
-        video URL manually.
+        Paste your Instagram reel or post link (Share → Copy link). Tracking
+        tails such as{' '}
+        <code className="rounded bg-slate-800 px-1 text-slate-300">
+          ?utm_source=ig_web_copy_link
+        </code>{' '}
+        are stripped automatically. Use Fetch Media, then Export to download a
+        ZIP of HTML5 banner pages (300×600 and 300×250 with HTML5{' '}
+        <code className="rounded bg-slate-800 px-1 text-slate-300">video</code>{' '}
+        or <code className="rounded bg-slate-800 px-1 text-slate-300">img</code>
+        ). TikTok and Facebook links work too. If extraction fails, paste a
+        direct file URL below, or paste Instagram embed HTML instead of the link.
       </p>
       {(headlessEnabled || apifyEnabled) && (
         <p className="rounded bg-emerald-900/30 px-3 py-1.5 text-sm text-emerald-300">
@@ -234,10 +313,10 @@ export default function SocialGenerator() {
             Post URL
           </label>
           <input
-            type="url"
+            type="text"
             value={postUrl}
             onChange={(e) => setPostUrl(e.target.value)}
-            placeholder="https://www.instagram.com/p/..."
+            placeholder="https://www.instagram.com/reel/… (share link is OK)"
             className="w-full rounded border border-slate-600 bg-slate-800 px-3 py-2 text-white"
           />
         </div>
@@ -279,6 +358,14 @@ export default function SocialGenerator() {
 
       {effectiveMediaUrl && (
         <>
+          {reelPosterOnly && (
+            <p className="rounded bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
+              This reel resolved to the poster image only (no MP4 in the browser
+              session). For motion video: keep trying Fetch, configure{' '}
+              <code className="text-amber-100">APIFY_TOKEN</code> on the server,
+              or paste a direct .mp4 link in the fallback field.
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-4">
             <label className="text-sm text-slate-400">Click URL:</label>
             <input
@@ -297,7 +384,11 @@ export default function SocialGenerator() {
           </div>
 
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-            <p className="mb-3 text-sm text-slate-400">Preview</p>
+            <p className="mb-1 text-sm text-slate-400">Banner preview</p>
+            <p className="mb-3 text-xs text-slate-500">
+              Same crop as export: HTML5 video or image scaled with
+              object-fit:cover in 300×600 and 300×250.
+            </p>
             {previewMediaError && (
               <p className="mb-3 rounded bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
                 {previewMediaError}
@@ -312,8 +403,8 @@ export default function SocialGenerator() {
                   >
                     {isVideo ? (
                       <video
-                        key={`${effectiveMediaUrl}-pv${previewUseProxy ? '1' : '0'}`}
-                        src={previewSrc(true)}
+                        key={effectiveMediaUrl}
+                        src={mediaSrc(true)}
                         muted
                         loop
                         playsInline
@@ -321,37 +412,23 @@ export default function SocialGenerator() {
                         controls
                         preload="auto"
                         className="h-full w-full object-cover"
-                        onError={() => {
-                          if (
-                            effectiveMediaUrl.startsWith('http') &&
-                            !previewUseProxy
-                          ) {
-                            setPreviewUseProxy(true)
-                            return
-                          }
+                        onError={() =>
                           setPreviewMediaError(
-                            'Preview could not load this video (URL may be expired or blocked). Export still uses the server to fetch the file.',
+                            'Could not load video preview. Try fetching again or paste a direct .mp4 URL.',
                           )
-                        }}
+                        }
                       />
                     ) : (
                       <img
-                        key={`${effectiveMediaUrl}-pi${previewUseProxy ? '1' : '0'}`}
-                        src={previewSrc(false)}
+                        key={effectiveMediaUrl}
+                        src={mediaSrc(false)}
                         alt=""
                         className="h-full w-full object-cover"
-                        onError={() => {
-                          if (
-                            effectiveMediaUrl.startsWith('http') &&
-                            !previewUseProxy
-                          ) {
-                            setPreviewUseProxy(true)
-                            return
-                          }
+                        onError={() =>
                           setPreviewMediaError(
-                            'Preview could not load this image. Open the URL in a new tab to confirm it still works.',
+                            'Could not load image preview. Try fetching again or paste a direct image URL.',
                           )
-                        }}
+                        }
                       />
                     )}
                   </div>
