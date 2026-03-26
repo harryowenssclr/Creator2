@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { IAB_DEFAULT_SIZES, IAB_OPTIONAL_EXTRA_SIZES } from '../lib/iabBannerSizes'
 
 const sections = [
   {
@@ -23,7 +24,7 @@ const sections = [
     path: '/social',
     title: 'Social Generator',
     description:
-      'Paste a URL from Instagram, Facebook, or TikTok. Auto-generate 300×600 and 300×250 banners from the post content.',
+      `Paste a post URL — crop per size, add CTA/social overlays, then export ${IAB_DEFAULT_SIZES.length} default placements (300×600 & 300×250) or add more from ${IAB_OPTIONAL_EXTRA_SIZES.length + IAB_DEFAULT_SIZES.length} IAB sizes.`,
   },
   {
     path: '/social-extractor',

@@ -57,3 +57,39 @@ export function ffmpegLocationArgs() {
 export function isFfmpegAvailable() {
   return resolveFfmpegBinary() !== null
 }
+
+let cachedFfprobe = undefined
+
+export function clearFfprobeBinaryCache() {
+  cachedFfprobe = undefined
+}
+
+/** @returns {string|null} ffprobe next to ffmpeg (required for CM360 transcode duration probe). */
+export function resolveFfprobeBinary() {
+  if (cachedFfprobe !== undefined) return cachedFfprobe
+  const ffmpeg = resolveFfmpegBinary()
+  if (!ffmpeg) {
+    cachedFfprobe = null
+    return null
+  }
+  const candidates = []
+  if (/ffmpeg\.exe$/i.test(ffmpeg)) {
+    candidates.push(ffmpeg.replace(/ffmpeg\.exe$/i, 'ffprobe.exe'))
+  } else if (/[\\/]ffmpeg$/i.test(ffmpeg) || /ffmpeg$/i.test(ffmpeg)) {
+    candidates.push(ffmpeg.replace(/ffmpeg$/i, 'ffprobe'))
+  } else {
+    candidates.push(ffmpeg.replace(/ffmpeg/i, 'ffprobe'))
+  }
+  for (const bin of candidates) {
+    if (probeExec(bin)) {
+      cachedFfprobe = bin
+      return bin
+    }
+  }
+  cachedFfprobe = null
+  return null
+}
+
+export function isFfprobeAvailable() {
+  return resolveFfprobeBinary() !== null
+}

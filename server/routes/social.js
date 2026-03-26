@@ -1,15 +1,21 @@
-import { Router } from 'express'
+import express from 'express'
 import { randomUUID } from 'crypto'
 import fs from 'fs'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
 import { headlessFetch } from '../lib/headlessFetch.js'
 import { isYtDlpAvailable } from '../lib/ytDlpResolve.js'
-import { clearFfmpegBinaryCache, isFfmpegAvailable } from '../lib/ffmpegResolve.js'
+import {
+  clearFfmpegBinaryCache,
+  clearFfprobeBinaryCache,
+  isFfmpegAvailable,
+  isFfprobeAvailable,
+} from '../lib/ffmpegResolve.js'
+import { transcodeVideoBufferForCm360, CM360_VIDEO_MAX_BYTES } from '../lib/cm360VideoTranscode.js'
 import { apifyFetchInstagram } from '../lib/apifyFetch.js'
 import { ytDlpFetch, isYtdlpSupportedUrl } from '../lib/ytDlpFetch.js'
 
-export const socialRouter = Router()
+export const socialRouter = express.Router()
 
 // ── In-memory media cache ──
 const mediaCache = new Map()
@@ -116,6 +122,26 @@ async function cacheMediaByUrl(url, mediaType) {
     return { id: null, detail }
   }
 }
+
+socialRouter.post(
+  '/compress-cm360-video',
+  express.raw({ type: '*/*', limit: '120mb' }),
+  async (req, res) => {
+    try {
+      const buf = req.body
+      if (!Buffer.isBuffer(buf) || buf.length < 256) {
+        return res.status(400).json({ error: 'Expected raw video body (min 256 bytes)' })
+      }
+      const out = await transcodeVideoBufferForCm360(buf)
+      res.setHeader('Content-Type', 'video/mp4')
+      res.setHeader('X-CM360-Video-Max-Bytes', String(CM360_VIDEO_MAX_BYTES))
+      res.send(out)
+    } catch (err) {
+      console.error('[social/compress-cm360-video]', err)
+      res.status(500).json({ error: err?.message || 'Transcode failed' })
+    }
+  },
+)
 
 socialRouter.get('/media/:id', (req, res) => {
   const entry = mediaCache.get(req.params.id)
@@ -600,7 +626,9 @@ socialRouter.get('/config', async (req, res) => {
     }
   }
   clearFfmpegBinaryCache()
+  clearFfprobeBinaryCache()
   const ffmpegAvailable = isFfmpegAvailable()
+  const ffprobeAvailable = isFfprobeAvailable()
 
   let ytdlpHint = null
   if (customPath && ytdlpPathFileExists === false) {
@@ -620,6 +648,9 @@ socialRouter.get('/config', async (req, res) => {
   } else if (ytdlpAvailable && !ffmpegAvailable) {
     ffmpegHint =
       'ffmpeg not detected by the API process — merged downloads often need it. Set FFMPEG_PATH in server/.env (see Winget FFmpeg path in .env.example).'
+  } else if (ffmpegAvailable && !ffprobeAvailable) {
+    ffmpegHint =
+      'ffprobe not found next to ffmpeg — CM360 video compression needs both. Install a full FFmpeg build (ffprobe.exe alongside ffmpeg.exe) or fix PATH.'
   }
 
   res.json({
@@ -633,6 +664,8 @@ socialRouter.get('/config', async (req, res) => {
     ffmpegPathCustom,
     ffmpegPathFileExists,
     ffmpegAvailable,
+    ffprobeAvailable,
+    ffmpegCompressForCm360: ffmpegAvailable && ffprobeAvailable,
     ffmpegHint,
     fetchDebugEnabled: SOCIAL_FETCH_DEBUG,
   })
