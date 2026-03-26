@@ -3,6 +3,15 @@ import axios from 'axios'
 import JSZip from 'jszip'
 import { buildCM360Html } from '../../services/cm360Export'
 
+/** Match server: allow instagram.com/... without https:// */
+function ensureHttpUrl(raw: string): string | null {
+  const s = raw.trim()
+  if (!s) return null
+  if (/^https?:\/\//i.test(s)) return s
+  if (s.startsWith('//')) return `https:${s}`
+  return `https://${s.replace(/^\/+/, '')}`
+}
+
 function axiosErrorMessage(err: unknown, fallback: string): string {
   if (!axios.isAxiosError(err)) return fallback
   const d = err.response?.data
@@ -33,8 +42,11 @@ export default function SocialGenerator() {
   const [error, setError] = useState<string | null>(null)
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [exporting, setExporting] = useState(false)
+  const [previewMediaError, setPreviewMediaError] = useState<string | null>(null)
 
-  const effectiveMediaUrl = mediaUrl || (manualMediaUrl.trim() || null)
+  const effectiveMediaUrl =
+    mediaUrl ??
+    (manualMediaUrl.trim() ? ensureHttpUrl(manualMediaUrl) : null)
   const proxyRefererQs = postUrl.trim().startsWith('http')
     ? `&referer=${encodeURIComponent(postUrl.trim())}`
     : ''
@@ -46,8 +58,13 @@ export default function SocialGenerator() {
     }).catch(() => setHeadlessEnabled(false))
   }, [])
 
+  useEffect(() => {
+    setPreviewMediaError(null)
+  }, [effectiveMediaUrl])
+
   const handleFetch = useCallback(async () => {
-    if (!postUrl.trim()) {
+    const normalized = ensureHttpUrl(postUrl)
+    if (!normalized) {
       setError('Please enter a post URL')
       return
     }
@@ -56,9 +73,14 @@ export default function SocialGenerator() {
     setMediaUrl(null)
     setMediaType('image')
     try {
-      const { data } = await axios.post('/api/social/fetch', {
-        url: postUrl.trim(),
-      }, { timeout: 90000 })
+      const { data } = await axios.post(
+        '/api/social/fetch',
+        { url: normalized },
+        {
+          timeout: 90000,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
       if (data.ok && data.mediaUrl) {
         setMediaUrl(data.mediaUrl)
         setMediaType(data.mediaType === 'video' ? 'video' : 'image')
@@ -159,8 +181,8 @@ export default function SocialGenerator() {
   }, [effectiveMediaUrl, clickUrl, postUrl, proxyRefererQs])
 
   const handleManualApply = useCallback(() => {
-    if (manualMediaUrl.trim()) {
-      const url = manualMediaUrl.trim()
+    const url = ensureHttpUrl(manualMediaUrl)
+    if (url) {
       setMediaUrl(url)
       const looksLikeVideo =
         /\.(mp4|webm|mov)(\?|$)/i.test(url) || url.includes('/video/')
@@ -263,6 +285,11 @@ export default function SocialGenerator() {
 
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
             <p className="mb-3 text-sm text-slate-400">Preview</p>
+            {previewMediaError && (
+              <p className="mb-3 rounded bg-amber-900/30 px-3 py-2 text-sm text-amber-200">
+                {previewMediaError}
+              </p>
+            )}
             <div className="flex flex-wrap gap-4">
                 {BANNER_SIZES.map(({ w, h }) => (
                   <div
@@ -285,6 +312,11 @@ export default function SocialGenerator() {
                         controls
                         preload="auto"
                         className="h-full w-full object-cover"
+                        onError={() =>
+                          setPreviewMediaError(
+                            'Preview failed to load video (CDN may block the proxy). Try a direct .mp4 URL or export may still work.',
+                          )
+                        }
                       />
                     ) : (
                       <img
@@ -295,6 +327,11 @@ export default function SocialGenerator() {
                         }
                         alt=""
                         className="h-full w-full object-cover"
+                        onError={() =>
+                          setPreviewMediaError(
+                            'Preview failed to load image (link may require https:// or CDN blocked the download).',
+                          )
+                        }
                       />
                     )}
                   </div>

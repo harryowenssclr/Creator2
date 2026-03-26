@@ -6,6 +6,16 @@ import { apifyFetchInstagram } from '../lib/apifyFetch.js'
 
 export const socialRouter = Router()
 
+/** Accept pasted URLs without scheme (browser input type="url" often requires https://). */
+function normalizePostUrl(raw) {
+  if (raw == null) return null
+  const s = typeof raw === 'string' ? raw.trim() : String(raw).trim()
+  if (!s) return null
+  if (/^https?:\/\//i.test(s)) return s
+  if (s.startsWith('//')) return `https:${s}`
+  return `https://${s.replace(/^\/+/, '')}`
+}
+
 const USE_HEADLESS = process.env.USE_HEADLESS !== 'false'
 const APIFY_TOKEN = process.env.APIFY_TOKEN?.trim() || ''
 
@@ -155,14 +165,13 @@ socialRouter.get('/proxy', async (req, res) => {
 
 socialRouter.post('/fetch', async (req, res) => {
   try {
-    const body = req.body && typeof req.body === 'object' ? req.body : {}
-    const { url } = body
-    if (!url || typeof url !== 'string') {
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+      ? req.body
+      : {}
+    const rawUrl = body.url
+    const trimmed = normalizePostUrl(rawUrl)
+    if (!trimmed) {
       return res.status(400).json({ error: 'URL is required' })
-    }
-    const trimmed = url.trim()
-    if (!trimmed.startsWith('http')) {
-      return res.status(400).json({ error: 'URL must start with http' })
     }
 
     let mediaUrl = null
