@@ -21,6 +21,8 @@ export default function SocialPostExtractor() {
   const [ytdlpAvailable, setYtdlpAvailable] = useState<boolean | null>(null)
   const [ytdlpHint, setYtdlpHint] = useState<string | null>(null)
   const [ffmpegHint, setFfmpegHint] = useState<string | null>(null)
+  /** Set when /api/social/config cannot be reached (do not confuse with yt-dlp missing). */
+  const [apiConnectionError, setApiConnectionError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewMediaError, setPreviewMediaError] = useState<string | null>(null)
 
@@ -38,6 +40,7 @@ export default function SocialPostExtractor() {
     axios
       .get('/api/social/config')
       .then(({ data }) => {
+        setApiConnectionError(null)
         setHeadlessEnabled(data.headlessEnabled)
         setApifyEnabled(data.apifyEnabled ?? false)
         setYtdlpAvailable(data.ytdlpAvailable ?? null)
@@ -47,12 +50,14 @@ export default function SocialPostExtractor() {
         setFfmpegHint(typeof fh === 'string' && fh.trim() ? fh.trim() : null)
       })
       .catch(() => {
-        setHeadlessEnabled(false)
-        setYtdlpAvailable(false)
-        setYtdlpHint(
-          'Could not reach /api/social/config. Start the server (npm run dev in server/, port 3001) so the Vite proxy can reach the API.',
-        )
+        setHeadlessEnabled(null)
+        setApifyEnabled(false)
+        setYtdlpAvailable(null)
+        setYtdlpHint(null)
         setFfmpegHint(null)
+        setApiConnectionError(
+          'Could not reach the API. From the Creator2 repo root run npm run dev (starts client + server). If you only run the client, start the API in another terminal: cd server then npm run dev (port 3001).',
+        )
       })
   }, [])
 
@@ -199,9 +204,17 @@ export default function SocialPostExtractor() {
         Paste a share link (Instagram, TikTok, Facebook, etc.) and extract the
         main image or video. Preview it here and download the raw file when you
         need an <code className="rounded bg-slate-800 px-1 text-slate-300">.mp4</code> or image outside this app. For CM360
-        banner ZIPs, use Social Generator.
+        banner ZIPs, use Social Generator. Requires the API on port 3001 (use{' '}
+        <code className="rounded bg-slate-800 px-1 text-slate-300">npm run dev</code> from the repo root).
       </p>
-      {(headlessEnabled || apifyEnabled || ytdlpAvailable) && (
+      {apiConnectionError && (
+        <div className="rounded bg-red-900/35 px-3 py-2 text-sm text-red-200">
+          <p className="font-medium text-red-100">API offline</p>
+          <p className="mt-1">{apiConnectionError}</p>
+        </div>
+      )}
+      {!apiConnectionError &&
+        (headlessEnabled || apifyEnabled || ytdlpAvailable) && (
         <p className="rounded bg-emerald-900/30 px-3 py-1.5 text-sm text-emerald-300">
           {headlessEnabled && 'Headless browser enabled. '}
           {apifyEnabled &&
@@ -209,11 +222,11 @@ export default function SocialPostExtractor() {
           {ytdlpAvailable && 'yt-dlp available (TikTok/Facebook/Instagram fallback). '}
         </p>
       )}
-      {ffmpegHint && (
+      {!apiConnectionError && ffmpegHint && (
         <p className="rounded bg-amber-900/20 px-3 py-1.5 text-sm text-amber-200/95">{ffmpegHint}</p>
       )}
 
-      {ytdlpAvailable === false && (
+      {!apiConnectionError && ytdlpAvailable === false && (
         <div className="space-y-2 rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
           {ytdlpHint && <p className="font-medium text-amber-100">{ytdlpHint}</p>}
           <p>
