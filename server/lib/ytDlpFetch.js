@@ -61,6 +61,36 @@ function looksLikeWebp(buf) {
   )
 }
 
+/**
+ * Instagram often serves a login wall on the main reel URL but embed works better
+ * for extractors. yt-dlp can succeed on /embed/ when the share URL fails.
+ */
+export function buildYtDlpUrlCandidates(url) {
+  const raw = (url || '').trim()
+  if (!raw) return []
+  const list = []
+  try {
+    const u = new URL(raw)
+    const host = u.hostname.toLowerCase()
+    const noQuery = `${u.origin}${u.pathname}`.replace(/\/+$/, '') || u.origin
+    list.push(noQuery)
+    if (host.includes('instagram.com')) {
+      const path = u.pathname.replace(/\/+$/, '') || '/'
+      const m = path.match(/^\/(reel|p|tv)\/([^/#?]+)/i)
+      if (m) {
+        const kind = m[1].toLowerCase()
+        const id = m[2]
+        const clean = `${u.origin}/${kind}/${id}/`
+        const embed = `${u.origin}/${kind}/${id}/embed/`
+        list.push(clean, embed)
+      }
+    }
+    return [...new Set(list)]
+  } catch {
+    return [raw]
+  }
+}
+
 /** Hosts we attempt with yt-dlp after headless / direct URL cache fails. */
 export function isYtdlpSupportedUrl(url) {
   if (!url || typeof url !== 'string') return false
@@ -126,7 +156,6 @@ function classifyBuffer(buffer) {
 export async function ytDlpFetch(url) {
   const bin = getYtDlpCommandOrNull()
   const cookies = (process.env.YT_DLP_COOKIES || '').trim()
-  const target = url.trim()
 
   if (!bin) {
     return {
@@ -135,6 +164,9 @@ export async function ytDlpFetch(url) {
         'yt-dlp not found. Install from https://github.com/yt-dlp/yt-dlp/releases or set YT_DLP_PATH (see server/.env.example).',
     }
   }
+
+  const pageCandidates = buildYtDlpUrlCandidates(url)
+  const targets = pageCandidates.length ? pageCandidates : [url.trim()]
 
   let dir
   try {
@@ -162,7 +194,7 @@ export async function ytDlpFetch(url) {
         'mp4',
         '-o',
         outTmpl,
-        target,
+        '__URL__',
       ],
     },
     {
@@ -177,7 +209,7 @@ export async function ytDlpFetch(url) {
         'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best',
         '-o',
         outTmpl,
-        target,
+        '__URL__',
       ],
     },
     {
@@ -192,65 +224,69 @@ export async function ytDlpFetch(url) {
         'best',
         '-o',
         outTmpl,
-        target,
+        '__URL__',
       ],
     },
   ]
 
   try {
-    for (const { label, args } of attempts) {
-      try {
-        await emptyDir(dir)
-      } catch (err) {
-        stderrAll += `[${label}] emptyDir: ${err.message}\n`
-        continue
-      }
-      try {
-        const { stderr } = await execFileP(bin, args, {
-          timeout: 180_000,
-          windowsHide: true,
-          maxBuffer: 8 * 1024 * 1024,
-        })
-        if (stderr) stderrAll += stderr.slice(-2000)
-      } catch (err) {
-        const se = err.stderr?.toString() || err.message || String(err)
-        stderrAll += `[${label}] ${se}\n`
-        continue
-      }
-
-      let picked
-      try {
-        picked = await largestFileInDir(dir)
-      } catch (err) {
-        stderrAll += `[${label}] list dir: ${err.message}\n`
-        continue
-      }
-      if (!picked || picked.size < 1000) {
-        stderrAll += `[${label}] no output file or too small\n`
-        continue
-      }
-      if (picked.size > MAX_BYTES) {
-        return {
-          ok: false,
-          error: `Download exceeded ${MAX_BYTES} bytes cap`,
-          stderrTail: stderrAll.slice(-600),
+    for (const pageUrl of targets) {
+      stderrAll += `\n--- page: ${pageUrl.slice(0, 120)} ---\n`
+      for (const { label, args: argsTemplate } of attempts) {
+        const args = argsTemplate.map((x) => (x === '__URL__' ? pageUrl : x))
+        try {
+          await emptyDir(dir)
+        } catch (err) {
+          stderrAll += `[${pageUrl}][${label}] emptyDir: ${err.message}\n`
+          continue
         }
-      }
+        try {
+          const { stderr } = await execFileP(bin, args, {
+            timeout: 180_000,
+            windowsHide: true,
+            maxBuffer: 8 * 1024 * 1024,
+          })
+          if (stderr) stderrAll += stderr.slice(-2000)
+        } catch (err) {
+          const se = err.stderr?.toString() || err.message || String(err)
+          stderrAll += `[${label}] ${se}\n`
+          continue
+        }
 
-      let buffer
-      try {
-        buffer = await readFile(picked.path)
-      } catch (err) {
-        stderrAll += `[${label}] readFile: ${err.message}\n`
-        continue
-      }
-      const kind = classifyBuffer(buffer)
-      if (!kind) {
-        stderrAll += `[${label}] output not recognized as video/image\n`
-        continue
-      }
+        let picked
+        try {
+          picked = await largestFileInDir(dir)
+        } catch (err) {
+          stderrAll += `[${label}] list dir: ${err.message}\n`
+          continue
+        }
+        if (!picked || picked.size < 1000) {
+          stderrAll += `[${label}] no output file or too small\n`
+          continue
+        }
+        if (picked.size > MAX_BYTES) {
+          return {
+            ok: false,
+            error: `Download exceeded ${MAX_BYTES} bytes cap`,
+            stderrTail: stderrAll.slice(-600),
+          }
+        }
 
-      return { ok: true, buffer, contentType: kind.contentType, mediaType: kind.mediaType }
+        let buffer
+        try {
+          buffer = await readFile(picked.path)
+        } catch (err) {
+          stderrAll += `[${label}] readFile: ${err.message}\n`
+          continue
+        }
+        const kind = classifyBuffer(buffer)
+        if (!kind) {
+          stderrAll += `[${label}] output not recognized as video/image\n`
+          continue
+        }
+
+        return { ok: true, buffer, contentType: kind.contentType, mediaType: kind.mediaType }
+      }
     }
 
     return {

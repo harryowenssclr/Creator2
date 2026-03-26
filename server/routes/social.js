@@ -18,6 +18,8 @@ const MAX_BYTES = 50 * 1024 * 1024
 
 const USE_HEADLESS = process.env.USE_HEADLESS !== 'false'
 const APIFY_TOKEN = process.env.APIFY_TOKEN?.trim() || ''
+/** When not 'false', run yt-dlp before headless for IG/TikTok/Facebook (avoids login-wall HTML in browser). */
+const SOCIAL_YTDLP_FIRST = process.env.SOCIAL_YTDLP_FIRST !== 'false'
 /** If not 'false', include structured debug in POST /fetch responses (avoid in public prod). */
 const SOCIAL_FETCH_DEBUG =
   process.env.SOCIAL_FETCH_DEBUG === '1' || process.env.SOCIAL_FETCH_DEBUG === 'true'
@@ -339,8 +341,53 @@ socialRouter.post('/fetch', async (req, res) => {
     let mediaBuffer = null
     let mediaContentType = null
     let hadHeadlessSessionBuffer = false
+    let cachedId = null
+    /** Shown when nothing could be extracted (plain-language / last tool stderr snippet). */
+    let fetchHint = null
 
-    if (USE_HEADLESS && /instagram\.com|tiktok\.com|facebook\.com|fb\.com|fb\.watch/.test(trimmed)) {
+    async function runYtDlp(reason) {
+      if (cachedId || !isYtdlpSupportedUrl(trimmed)) return
+      pushDebug({ phase: 'yt-dlp', reason, start: true })
+      const r = await ytDlpFetch(trimmed)
+      pushDebug({
+        phase: 'yt-dlp',
+        reason,
+        ok: r.ok,
+        bytes: r.buffer?.length,
+        error: r.error,
+        stderrTail: r.stderrTail,
+      })
+      if (r.ok && r.buffer) {
+        const id = cacheBuffer(r.buffer, r.contentType)
+        if (id) {
+          cachedId = id
+          source = 'ytdlp'
+          mediaType = r.mediaType || 'video'
+          mediaUrl = null
+          console.log(
+            `[social] yt-dlp cached ${(r.buffer.length / 1024).toFixed(0)} KB (${mediaType}) ${id}`,
+          )
+        }
+      } else if (!r.ok) {
+        const tail = (r.stderrTail || r.error || '').replace(/\s+/g, ' ').trim()
+        fetchHint =
+          tail.length > 320 ? `${tail.slice(0, 320)}…` : tail || 'yt-dlp could not download this link.'
+      }
+    }
+
+    const hostPrefersYtdlpFirst =
+      SOCIAL_YTDLP_FIRST &&
+      /instagram\.com|tiktok\.com|facebook\.com|fb\.com|fb\.watch/i.test(trimmed)
+
+    if (hostPrefersYtdlpFirst) {
+      await runYtDlp('early-before-headless')
+    }
+
+    if (
+      USE_HEADLESS &&
+      !cachedId &&
+      /instagram\.com|tiktok\.com|facebook\.com|fb\.com|fb\.watch/.test(trimmed)
+    ) {
       try {
         const headlessResult = await headlessFetch(trimmed)
         pushDebug({
@@ -369,7 +416,7 @@ socialRouter.post('/fetch', async (req, res) => {
     const isInstagram = /instagram\.com/.test(trimmed)
     const isReel = trimmed.includes('/reel/')
     const gotThumbnailForReel = isReel && mediaType === 'image'
-    if (APIFY_TOKEN && isInstagram && (!mediaUrl || gotThumbnailForReel)) {
+    if (APIFY_TOKEN && !cachedId && isInstagram && (!mediaUrl || gotThumbnailForReel)) {
       try {
         const apifyResult = await apifyFetchInstagram(trimmed)
         pushDebug({
@@ -390,9 +437,6 @@ socialRouter.post('/fetch', async (req, res) => {
       }
     }
 
-    let cachedId = null
-    /** Shown when nothing could be extracted (plain-language / last tool stderr snippet). */
-    let fetchHint = null
     if (mediaBuffer) {
       cachedId = cacheBuffer(mediaBuffer, mediaContentType)
       if (cachedId) {
@@ -462,37 +506,11 @@ socialRouter.post('/fetch', async (req, res) => {
 
     await tryCacheDiscoveredUrl('after-scrape-oembed')
 
-    async function runYtDlp(reason) {
-      if (cachedId || !isYtdlpSupportedUrl(trimmed)) return
-      pushDebug({ phase: 'yt-dlp', reason, start: true })
-      const r = await ytDlpFetch(trimmed)
-      pushDebug({
-        phase: 'yt-dlp',
-        reason,
-        ok: r.ok,
-        bytes: r.buffer?.length,
-        error: r.error,
-        stderrTail: r.stderrTail,
-      })
-      if (r.ok && r.buffer) {
-        const id = cacheBuffer(r.buffer, r.contentType)
-        if (id) {
-          cachedId = id
-          source = 'ytdlp'
-          mediaType = r.mediaType || 'video'
-          mediaUrl = null
-          console.log(
-            `[social] yt-dlp cached ${(r.buffer.length / 1024).toFixed(0)} KB (${mediaType}) ${id}`,
-          )
-        }
-      } else if (!r.ok) {
-        const tail = (r.stderrTail || r.error || '').replace(/\s+/g, ' ').trim()
-        fetchHint =
-          tail.length > 320 ? `${tail.slice(0, 320)}…` : tail || 'yt-dlp could not download this link.'
-      }
+    if (!hostPrefersYtdlpFirst) {
+      await runYtDlp('after-direct-cache-failed-or-no-url')
+    } else if (!cachedId) {
+      await runYtDlp('after-fallbacks-retry')
     }
-
-    await runYtDlp('after-direct-cache-failed-or-no-url')
 
     if (cachedId && isTikTok && mediaType === 'image' && isYtdlpSupportedUrl(trimmed)) {
       const prevId = cachedId
