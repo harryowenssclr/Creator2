@@ -25,6 +25,7 @@ export default function SocialGenerator() {
   const [apifyEnabled, setApifyEnabled] = useState(false)
   const [ytdlpAvailable, setYtdlpAvailable] = useState<boolean | null>(null)
   const [ytdlpHint, setYtdlpHint] = useState<string | null>(null)
+  const [ffmpegHint, setFfmpegHint] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [clickUrl, setClickUrl] = useState('https://www.example.com')
   const [exporting, setExporting] = useState(false)
@@ -52,12 +53,15 @@ export default function SocialGenerator() {
       setYtdlpAvailable(data.ytdlpAvailable ?? null)
       const hint = data.ytdlpHint
       setYtdlpHint(typeof hint === 'string' && hint.trim() ? hint.trim() : null)
+      const fh = data.ffmpegHint
+      setFfmpegHint(typeof fh === 'string' && fh.trim() ? fh.trim() : null)
     }).catch(() => {
       setHeadlessEnabled(false)
       setYtdlpAvailable(false)
       setYtdlpHint(
         'Could not reach /api/social/config. Start the API on port 3001 (server npm run dev).',
       )
+      setFfmpegHint(null)
     })
   }, [])
 
@@ -258,6 +262,10 @@ export default function SocialGenerator() {
           {ytdlpAvailable && 'yt-dlp available (TikTok/Facebook/Instagram fallback). '}
         </p>
       )}
+      {ffmpegHint && (
+        <p className="rounded bg-amber-900/20 px-3 py-1.5 text-sm text-amber-200/95">{ffmpegHint}</p>
+      )}
+
       {ytdlpAvailable === false && (
         <div className="space-y-2 rounded bg-amber-900/30 px-3 py-1.5 text-sm text-amber-200">
           {ytdlpHint && <p className="font-medium text-amber-100">{ytdlpHint}</p>}

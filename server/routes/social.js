@@ -5,6 +5,7 @@ import axios from 'axios'
 import * as cheerio from 'cheerio'
 import { headlessFetch } from '../lib/headlessFetch.js'
 import { isYtDlpAvailable } from '../lib/ytDlpResolve.js'
+import { clearFfmpegBinaryCache, isFfmpegAvailable } from '../lib/ffmpegResolve.js'
 import { apifyFetchInstagram } from '../lib/apifyFetch.js'
 import { ytDlpFetch, isYtdlpSupportedUrl } from '../lib/ytDlpFetch.js'
 
@@ -551,6 +552,19 @@ socialRouter.get('/config', async (req, res) => {
   }
   const ytdlpAvailable = await isYtDlpAvailable()
 
+  const ffmpegCustomPath = (process.env.FFMPEG_PATH || '').trim()
+  const ffmpegPathCustom = !!ffmpegCustomPath
+  let ffmpegPathFileExists = null
+  if (ffmpegCustomPath) {
+    try {
+      ffmpegPathFileExists = fs.existsSync(ffmpegCustomPath)
+    } catch {
+      ffmpegPathFileExists = false
+    }
+  }
+  clearFfmpegBinaryCache()
+  const ffmpegAvailable = isFfmpegAvailable()
+
   let ytdlpHint = null
   if (customPath && ytdlpPathFileExists === false) {
     ytdlpHint =
@@ -562,6 +576,15 @@ socialRouter.get('/config', async (req, res) => {
     ytdlpHint = 'Install yt-dlp on the server or set YT_DLP_PATH in server/.env (see .env.example).'
   }
 
+  let ffmpegHint = null
+  if (ffmpegCustomPath && ffmpegPathFileExists === false) {
+    ffmpegHint =
+      'FFMPEG_PATH points to a missing file — merged video (IG/TikTok) may fail. Fix server/.env.'
+  } else if (ytdlpAvailable && !ffmpegAvailable) {
+    ffmpegHint =
+      'ffmpeg not detected by the API process — merged downloads often need it. Set FFMPEG_PATH in server/.env (see Winget FFmpeg path in .env.example).'
+  }
+
   res.json({
     headlessEnabled: USE_HEADLESS,
     apifyEnabled: !!APIFY_TOKEN,
@@ -570,6 +593,10 @@ socialRouter.get('/config', async (req, res) => {
     ytdlpCookiesConfigured: !!((process.env.YT_DLP_COOKIES || '').trim()),
     ytdlpAvailable,
     ytdlpHint,
+    ffmpegPathCustom,
+    ffmpegPathFileExists,
+    ffmpegAvailable,
+    ffmpegHint,
     fetchDebugEnabled: SOCIAL_FETCH_DEBUG,
   })
 })

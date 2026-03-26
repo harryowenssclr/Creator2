@@ -2,6 +2,7 @@ import './loadEnv.js'
 import express from 'express'
 import cors from 'cors'
 import { resolveYtDlpBinary } from './lib/ytDlpResolve.js'
+import { resolveFfmpegBinary } from './lib/ffmpegResolve.js'
 import { socialRouter } from './routes/social.js'
 import { websiteRouter } from './routes/website.js'
 
@@ -28,12 +29,20 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   const ytdlp = resolveYtDlpBinary()
+  const ffmpeg = resolveFfmpegBinary()
   console.log(`Server running at http://localhost:${PORT}`)
   if (ytdlp) {
     console.log(`yt-dlp OK (${ytdlp})`)
   } else {
     console.warn(
       'yt-dlp not found — Social Post Extractor /fetch will miss TikTok/Facebook and many reels. Install yt-dlp or set YT_DLP_PATH in server/.env',
+    )
+  }
+  if (ffmpeg) {
+    console.log(`ffmpeg OK (${ffmpeg})`)
+  } else {
+    console.warn(
+      'ffmpeg not found — yt-dlp may fail on merged video (Instagram/TikTok). Set FFMPEG_PATH in server/.env or install ffmpeg.',
     )
   }
 })

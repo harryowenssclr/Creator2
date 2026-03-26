@@ -6,6 +6,7 @@
  * Env:
  *   YT_DLP_PATH — optional explicit executable
  *   YT_DLP_COOKIES — optional Netscape cookies.txt (helps IG/FB)
+ *   FFMPEG_PATH — optional; passed as --ffmpeg-location (needed for merged formats)
  */
 
 import { execFile } from 'child_process'
@@ -13,6 +14,7 @@ import { promisify } from 'util'
 import { mkdtemp, readdir, readFile, rm, stat } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { ffmpegLocationArgs } from './ffmpegResolve.js'
 import { getYtDlpCommandOrNull } from './ytDlpResolve.js'
 
 const execFileP = promisify(execFile)
@@ -137,12 +139,14 @@ export async function ytDlpFetch(url) {
   const dir = await mkdtemp(join(tmpdir(), 'creator-ytdlp-'))
   const outTmpl = join(dir, 'media.%(ext)s')
   let stderrAll = ''
+  const ff = ffmpegLocationArgs()
 
   const attempts = [
     {
       label: 'merge-mp4',
       args: [
         ...(cookies ? ['--cookies', cookies] : []),
+        ...ff,
         '--no-playlist',
         '--no-warnings',
         '--newline',
@@ -159,6 +163,7 @@ export async function ytDlpFetch(url) {
       label: 'best-single',
       args: [
         ...(cookies ? ['--cookies', cookies] : []),
+        ...ff,
         '--no-playlist',
         '--no-warnings',
         '--newline',
@@ -173,6 +178,7 @@ export async function ytDlpFetch(url) {
       label: 'best-any',
       args: [
         ...(cookies ? ['--cookies', cookies] : []),
+        ...ff,
         '--no-playlist',
         '--no-warnings',
         '--newline',
