@@ -11,9 +11,19 @@ import { websiteRouter } from './routes/website.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
-const PORT = Number(process.env.PORT) || 3001
+
+/** Railway injects PORT as a string; avoid 0/NaN falling back wrongly. */
+function resolveListenPort() {
+  const raw = process.env.PORT
+  if (raw === undefined || raw === '') return 3001
+  const n = parseInt(String(raw), 10)
+  return Number.isFinite(n) && n > 0 ? n : 3001
+}
+const PORT = resolveListenPort()
 /** Railway / Docker need all interfaces; use LISTEN_HOST=127.0.0.1 for local-only dev. */
 const LISTEN_HOST = process.env.LISTEN_HOST || '0.0.0.0'
+
+app.set('trust proxy', 1)
 
 /** Built SPA — same origin as API in production (Railway, etc.). */
 const clientDist = path.join(__dirname, '..', 'client', 'dist')
@@ -31,7 +41,8 @@ app.use('/api/website', websiteRouter)
 
 if (serveSpa) {
   app.use(express.static(clientDist, { index: false }))
-  app.get('*', (req, res, next) => {
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next()
     if (req.path.startsWith('/api')) return next()
     res.sendFile(path.join(clientDist, 'index.html'), (err) => {
       if (err) next(err)
@@ -45,6 +56,13 @@ app.use((err, req, res, next) => {
   }
   console.error(err)
   res.status(500).json({ error: err.message || 'Internal server error' })
+})
+
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] uncaughtException', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandledRejection', reason)
 })
 
 app.listen(PORT, LISTEN_HOST, () => {

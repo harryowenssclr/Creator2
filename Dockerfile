@@ -15,6 +15,7 @@ RUN apt-get update \
     chromium \
     curl \
     ffmpeg \
+    python3 \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
